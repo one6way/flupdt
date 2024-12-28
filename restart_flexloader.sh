@@ -130,6 +130,27 @@ wait_for_run_dir_cleanup() {
     fi
 }
 
+# Добавляем функцию проверки файлов
+check_executables() {
+    local files=("meta-init-service" "target-init-service" "extract-all" "apply-all")
+    
+    log_message "Проверяем наличие исполняемых файлов в $FLEXLOADER_HOME"
+    ls -la "$FLEXLOADER_HOME" >> "$RESTART_LOG"
+    
+    for file in "${files[@]}"; do
+        if [ ! -f "$FLEXLOADER_HOME/$file" ]; then
+            log_message "ОШИБКА: Файл $file не найден в $FLEXLOADER_HOME"
+            return 1
+        fi
+        if [ ! -x "$FLEXLOADER_HOME/$file" ]; then
+            log_message "ОШИБКА: Файл $file не является исполняемым"
+            return 1
+        fi
+    done
+    
+    return 0
+}
+
 # Функция для запуска процесса
 start_process() {
     local process_name=$1
@@ -164,7 +185,7 @@ start_process() {
     if [ ! -x "$executable" ]; then
         log_message "ОШИБКА: Исполняемый файл $executable не найден или не является исполняемым"
         return 1
-    }
+    fi
     
     # Попытка запуска с повторами при неудаче
     while [ $retry_count -lt $max_retries ]; do
@@ -205,27 +226,6 @@ check_disk_space() {
     return 0
 }
 
-# Добавляем функцию проверки файлов
-check_executables() {
-    local files=("meta-init-service" "target-init-service" "extract-all" "apply-all")
-    
-    log_message "Проверяем наличие исполняемых файлов в $FLEXLOADER_HOME"
-    ls -la "$FLEXLOADER_HOME" >> "$RESTART_LOG"
-    
-    for file in "${files[@]}"; do
-        if [ ! -f "$FLEXLOADER_HOME/$file" ]; then
-            log_message "ОШИБКА: Файл $file не найден в $FLEXLOADER_HOME"
-            return 1
-        fi
-        if [ ! -x "$FLEXLOADER_HOME/$file" ]; then
-            log_message "ОШИБКА: Файл $file не является исполняемым"
-            return 1
-        fi
-    done
-    
-    return 0
-}
-
 # Основной процесс перезапуска
 log_message "Начинаем перезапуск процессов Flexloader..."
 log_message "----------------------------------------"
@@ -238,15 +238,15 @@ check_disk_space || {
 }
 
 # Проверяем наличие исполняемых файлов
-check_executables || {
+if ! check_executables; then
     log_message "ОШИБКА: Не все исполняемые файлы доступны"
     exit 1
-}
+fi
 
 # Ожидаем очистки папки run
-wait_for_run_dir_cleanup || {
-    log_message "Продолжаем несмотря на предупреждение о папке $RUN_DIR..."
-}
+if ! wait_for_run_dir_cleanup; then
+    log_message "ПРЕДУПРЕЖДЕНИЕ: Папка $RUN_DIR не была очищена"
+fi
 
 # Останавливаем все процессы
 for process in "${PROCESSES_TO_CHECK[@]}"; do
