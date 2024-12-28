@@ -31,14 +31,11 @@ get_last_log_lines() {
     fi
 }
 
-# Функция для извлечения версии из JAR файла
-get_jar_version() {
+# Функция для извлечения версии из имени файла
+get_version_from_filename() {
     local jar_file=$1
-    if [ -f "$jar_file" ]; then
-        unzip -p "$jar_file" META-INF/MANIFEST.MF 2>/dev/null | grep "Implementation-Version" | cut -d: -f2 | tr -d ' '
-    else
-        echo "Файл не найден"
-    fi
+    # Извлекаем версию из имени файла (например, из ru.glowbyte.flexloader_1.2.3.jar получаем 1.2.3)
+    echo "$jar_file" | sed -n 's/.*flexloader_\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)\.jar$/\1/p'
 }
 
 # Функция для создания бэкапа текущей версии
@@ -96,7 +93,8 @@ fi
 # Вывод информации о новой версии
 echo "Найдена новая версия Flexloader:"
 echo "Файл: $NEW_VERSION"
-echo "Версия: $(echo $NEW_VERSION | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+.*\.jar')"
+VERSION=$(get_version_from_filename "$NEW_VERSION")
+echo "Версия: $VERSION"
 
 # Запрос подтверждения
 read -p "Продолжить обновление? (да/нет): " CONTINUE
@@ -138,8 +136,8 @@ fi
 cp "$PWD/$NEW_VERSION" .
 chmod 744 "$NEW_VERSION"
 
-# Создание нового симлинка
-ln -s "$NEW_VERSION" flexloader.jar
+# Создание нового симлинка (с принудительной заменой если существует)
+ln -sf "$NEW_VERSION" flexloader.jar
 
 # Переход в корневую папку flexloader
 cd "$FLEXLOADER_HOME"
