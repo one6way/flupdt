@@ -140,47 +140,35 @@ start_process() {
     
     case "$process_name" in
         *"meta-init"*)
-            command="./meta-init-service"
+            command="$FLEXLOADER_HOME/meta-init-service"
             log_file="meta-init-service.log"
             ;;
         *"target-init"*)
-            command="./target-init-service"
+            command="$FLEXLOADER_HOME/target-init-service"
             log_file="target-init-service.log"
             ;;
         *"extract-all"*)
-            command="./extract-all --daemon"
+            command="$FLEXLOADER_HOME/extract-all --daemon"
             log_file="extract-all.log"
             ;;
         *"apply-all"*)
-            command="./apply-all --daemon"
+            command="$FLEXLOADER_HOME/apply-all --daemon"
             log_file="apply-all.log"
             ;;
     esac
     
     log_message "Запускаем $command..."
     
-    # Проверяем и переходим в директорию FLEXLOADER_HOME
-    current_dir=$(pwd)
-    log_message "Текущая директория перед cd: $current_dir"
-    
-    cd "$FLEXLOADER_HOME" || {
-        log_message "ОШИБКА: Не удалось перейти в директорию $FLEXLOADER_HOME"
-        exit 1
-    }
-    
-    current_dir=$(pwd)
-    log_message "Текущая директория после cd: $current_dir"
-    
     # Проверяем наличие исполняемого файла
-    executable=$(echo $command | cut -d' ' -f1 | sed 's|^./||')
+    executable=$(echo $command | cut -d' ' -f1)
     if [ ! -x "$executable" ]; then
-        log_message "ОШИБКА: Исполняемый файл $executable не найден или не является исполняемым в директории $FLEXLOADER_HOME"
+        log_message "ОШИБКА: Исполняемый файл $executable не найден или не является исполняемым"
         return 1
     }
     
     # Попытка запуска с повторами при неудаче
     while [ $retry_count -lt $max_retries ]; do
-        log_message "Выполняем команду: $command в директории $(pwd)"
+        log_message "Выполняем команду: $command"
         $command > "$LOG_DIR/$log_file" 2>&1 &
         sleep 5  # увеличили время ожидания до 5 секунд между запусками
         
@@ -217,6 +205,27 @@ check_disk_space() {
     return 0
 }
 
+# Добавляем функцию проверки файлов
+check_executables() {
+    local files=("meta-init-service" "target-init-service" "extract-all" "apply-all")
+    
+    log_message "Проверяем наличие исполняемых файлов в $FLEXLOADER_HOME"
+    ls -la "$FLEXLOADER_HOME" >> "$RESTART_LOG"
+    
+    for file in "${files[@]}"; do
+        if [ ! -f "$FLEXLOADER_HOME/$file" ]; then
+            log_message "ОШИБКА: Файл $file не найден в $FLEXLOADER_HOME"
+            return 1
+        fi
+        if [ ! -x "$FLEXLOADER_HOME/$file" ]; then
+            log_message "ОШИБКА: Файл $file не является исполняемым"
+            return 1
+        fi
+    done
+    
+    return 0
+}
+
 # Основной процесс перезапуска
 log_message "Начинаем перезапуск процессов Flexloader..."
 log_message "----------------------------------------"
@@ -226,6 +235,12 @@ check_java
 check_jar
 check_disk_space || {
     log_message "Продолжаем несмотря на предупреждение о месте на диске..."
+}
+
+# Проверяем наличие исполняемых файлов
+check_executables || {
+    log_message "ОШИБКА: Не все исполняемые файлы доступны"
+    exit 1
 }
 
 # Ожидаем очистки папки run
