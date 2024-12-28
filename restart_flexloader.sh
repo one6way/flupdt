@@ -45,39 +45,87 @@ check_jar() {
     fi
 }
 
-# Функция для получения PID процесса
-get_process_pid() {
+# Функция для получения PID и пути процесса
+get_process_info() {
     local search_pattern=$1
-    ps -ef | grep "$search_pattern" | grep "$CURRENT_USER" | grep "$FLEXLOADER_HOME" | grep -v grep | awk '{print $2}'
+    ps -ef | grep "$search_pattern" | grep "$CURRENT_USER" | grep "$FLEXLOADER_HOME" | grep -v grep | \
+    awk -v home="$FLEXLOADER_HOME" '{
+        cmd = "";
+        for(i=8; i<=NF; i++) cmd = cmd $i " ";
+        if (index(cmd, home) > 0) print $2 "\t" cmd
+    }'
 }
 
 # Функция для мягкого завершения процесса
 stop_process() {
     local process_name=$1
-    local pid=$(get_process_pid "$process_name")
+    local process_info
     
-    if [ -n "$pid" ]; then
-        log_message "Останавливаем процесс $process_name (PID: $pid)..."
-        kill -15 "$pid"
-        
-        # Ждем завершения процесса
-        local wait_time=0
-        while [ -n "$(get_process_pid "$process_name")" ] && [ $wait_time -lt $MAX_WAIT_TIME ]; do
-            sleep 1
-            wait_time=$((wait_time + 1))
-            echo -n "."
-        done
-        echo ""
-        
-        # Если процесс все еще работает после таймаута, завершаем принудительно
-        if [ -n "$(get_process_pid "$process_name")" ]; then
-            log_message "ПРЕДУПРЕЖДЕНИЕ: Процесс не завершился за $MAX_WAIT_TIME секунд, выполняем принудительное завершение..."
-            kill -9 "$pid"
+    while IFS=$'\t' read -r pid cmd; do
+        # Дополнительная проверка пути
+        if [[ "$cmd" == *"$FLEXLOADER_HOME"* ]]; then
+            log_message "Останавливаем процесс $process_name (PID: $pid)"
+            log_message "Команда процесса: $cmd"
+            kill -15 "$pid"
+            
+            # Ждем завершения процесса
+            local wait_time=0
+            while kill -0 "$pid" 2>/dev/null && [ $wait_time -lt $MAX_WAIT_TIME ]; do
+                sleep 1
+                wait_time=$((wait_time + 1))
+                echo -n "."
+            done
+            echo ""
+            
+            # Если процесс все еще работает после таймаута, завершаем принудительно
+            if kill -0 "$pid" 2>/dev/null; then
+                log_message "ПРЕДУПРЕЖДЕНИЕ: Процесс не завершился за $MAX_WAIT_TIME секунд, выполняем принудительное завершение..."
+                kill -9 "$pid"
+            else
+                log_message "Процесс успешно остановлен"
+            fi
         else
-            log_message "Процесс успешно остановлен"
+            log_message "ПРОПУЩЕНО: Процесс $pid не принадлежит директории $FLEXLOADER_HOME"
         fi
-    else
-        log_message "Процесс $process_name не найден"
+    done < <(get_process_info "$process_name")
+}
+
+# Функция проверки и ожидания очистки папки run
+wait_for_run_dir_cleanup() {
+    local max_wait=300  # максимальное время ожидания в секундах (5 минут)
+    local wait_time=0
+    local check_interval=5  # интервал проверки в секундах
+
+    log_message "Проверяем папку $RUN_DIR"
+    
+    if [ ! -d "$RUN_DIR" ]; then
+        log_message "Папка $RUN_DIR не существует"
+        return 0
+    fi
+
+    while [ $wait_time -lt $max_wait ]; do
+        local dir_count=$(find "$RUN_DIR" -mindepth 1 -maxdepth 1 -type d | wc -l)
+        
+        if [ "$dir_count" -eq 0 ]; then
+            log_message "Папка $RUN_DIR пуста"
+            return 0
+        fi
+
+        log_message "В папке $RUN_DIR найдено $dir_count директорий. Ожидаем их удаления..."
+        sleep $check_interval
+        wait_time=$((wait_time + check_interval))
+        
+        # Показываем прогресс
+        echo -n "."
+    done
+
+    echo ""  # Новая строка после точек
+    
+    if [ $wait_time -ge $max_wait ]; then
+        log_message "ПРЕДУПРЕЖДЕНИЕ: Превышено время ожидания очистки папки $RUN_DIR"
+        log_message "Содержимое папки $RUN_DIR:"
+        ls -la "$RUN_DIR" | tee -a "$RESTART_LOG"
+        return 1
     fi
 }
 
@@ -114,7 +162,7 @@ start_process() {
         nohup java -jar flexloader.jar "$service_type" > "$LOG_DIR/$service_type.log" 2>&1 &
         sleep 2  # даем процессу время на запуск
         
-        if [ -n "$(get_process_pid "$process_name")" ]; then
+        if [ -n "$(get_process_info "$process_name" | cut -f1)" ]; then
             log_message "Процесс $service_type успешно запущен"
             return 0
         else
@@ -133,45 +181,6 @@ cleanup_logs() {
     local max_log_days=7
     log_message "Очистка логов старше $max_log_days дней..."
     find "$LOG_DIR" -name "*.log" -type f -mtime +$max_log_days -delete
-}
-
-# Функция проверки и ожидания очистки папки run
-wait_for_run_dir_cleanup() {
-    local max_wait=300  # максимальное время ожидания в секундах (5 минут)
-    local wait_time=0
-    local check_interval=5  # интервал проверки в секундах
-
-    log_message "Проверяем папку $RUN_DIR"
-    
-    if [ ! -d "$RUN_DIR" ]; then
-        log_message "Папка $RUN_DIR не существует"
-        return 0
-    }
-
-    while [ $wait_time -lt $max_wait ]; do
-        local dir_count=$(find "$RUN_DIR" -mindepth 1 -maxdepth 1 -type d | wc -l)
-        
-        if [ "$dir_count" -eq 0 ]; then
-            log_message "Папка $RUN_DIR пуста"
-            return 0
-        fi
-
-        log_message "В папке $RUN_DIR найдено $dir_count директорий. Ожидаем их удаления..."
-        sleep $check_interval
-        wait_time=$((wait_time + check_interval))
-        
-        # Показываем прогресс
-        echo -n "."
-    done
-
-    echo ""  # Новая строка после точек
-    
-    if [ $wait_time -ge $max_wait ]; then
-        log_message "ПРЕДУПРЕЖДЕНИЕ: Превышено время ожидания очистки папки $RUN_DIR"
-        log_message "Содержимое папки $RUN_DIR:"
-        ls -la "$RUN_DIR" | tee -a "$RESTART_LOG"
-        return 1
-    fi
 }
 
 # Функция для проверки свободного места
