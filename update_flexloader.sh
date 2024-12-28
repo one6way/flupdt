@@ -3,6 +3,10 @@
 # Определение переменных окружения
 FLEXLOADER_HOME="/opt/flexloader"  # Измените на нужный путь
 FLEXLOADER_VERSIONS_DIR="/opt/flexloader/versions"  # Измените на нужный путь
+FLEXLOADER_BACKUP_DIR="$(dirname "$0")/backups"  # Папка для бэкапов в директории со скриптом
+
+# Создаем директорию для бэкапов, если её нет
+mkdir -p "$FLEXLOADER_BACKUP_DIR"
 
 # Проверка наличия переменных окружения
 if [ -z "$FLEXLOADER_HOME" ] || [ -z "$FLEXLOADER_VERSIONS_DIR" ]; then
@@ -24,6 +28,60 @@ get_last_log_lines() {
         tail -n 5 "$log_file"
     else
         echo "Лог файл не найден: $log_file"
+    fi
+}
+
+# Функция для извлечения версии из JAR файла
+get_jar_version() {
+    local jar_file=$1
+    if [ -f "$jar_file" ]; then
+        unzip -p "$jar_file" META-INF/MANIFEST.MF 2>/dev/null | grep "Implementation-Version" | cut -d: -f2 | tr -d ' '
+    else
+        echo "Файл не найден"
+    fi
+}
+
+# Функция для создания бэкапа текущей версии
+backup_current_version() {
+    local backup_dir="$FLEXLOADER_BACKUP_DIR/$(date +%Y%m%d_%H%M%S)"
+    echo "Создание резервной копии текущей версии..."
+    mkdir -p "$backup_dir"
+    if [ -L "$FLEXLOADER_VERSIONS_DIR/flexloader.jar" ]; then
+        cp -P "$FLEXLOADER_VERSIONS_DIR/flexloader.jar" "$backup_dir/"
+        cp "$(readlink -f "$FLEXLOADER_VERSIONS_DIR/flexloader.jar")" "$backup_dir/"
+        echo "Бэкап создан в: $backup_dir"
+    else
+        echo "Текущий симлинк не найден"
+    fi
+}
+
+# Функция для проверки здоровья сервиса
+check_service_health() {
+    local service_name=$1
+    local max_retries=3
+    local retry=0
+    
+    while [ $retry -lt $max_retries ]; do
+        if ps -f -u $(whoami) | grep "$service_name" | grep -v grep > /dev/null; then
+            echo "Сервис $service_name успешно запущен"
+            return 0
+        fi
+        retry=$((retry + 1))
+        echo "Попытка $retry из $max_retries: Сервис $service_name не запущен"
+        sleep 5
+    done
+    
+    echo "ОШИБКА: Сервис $service_name не запустился после $max_retries попыток"
+    return 1
+}
+
+# Функция для очистки старых бэкапов
+cleanup_old_backups() {
+    local max_backups=5
+    
+    if [ -d "$FLEXLOADER_BACKUP_DIR" ]; then
+        echo "Очистка старых резервных копий..."
+        cd "$FLEXLOADER_BACKUP_DIR" && ls -t | tail -n +$((max_backups + 1)) | xargs -r rm -rf
     fi
 }
 
@@ -119,5 +177,17 @@ start_service "./meta.init-service" "meta-init"
 start_service "./target.init-service" "target-init"
 start_service "./extract_all --daemon" "extract-all"
 start_service "./apply-all --daemon" "apply-all"
+
+# Проверка здоровья сервисов
+check_service_health "meta-init"
+check_service_health "target-init"
+check_service_health "extract-all"
+check_service_health "apply-all"
+
+# Очистка старых бэкапов
+cleanup_old_backups
+
+# Создание бэкапа текущей версии
+backup_current_version
 
 echo "Обновление завершено успешно!"
