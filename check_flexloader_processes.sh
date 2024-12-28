@@ -28,7 +28,7 @@ check_process() {
     if [ "$count" -gt 0 ]; then
         ps -ef | grep "$search_pattern" | grep "$CURRENT_USER" | grep "$FLEXLOADER_HOME" | grep -v grep | \
         while read -r user pid ppid rest; do
-            echo -e "$FLEXLOADER_HOME\t$CURRENT_USER\t$service_type\t$pid"
+            printf "%-20s %-15s %-15s %-8s\n" "$FLEXLOADER_HOME" "$CURRENT_USER" "$service_type" "$pid"
         done
     fi
 }
@@ -41,8 +41,9 @@ PROCESSES_TO_CHECK=(
     "ru.glowbyte.flexloader.CLI apply-all"
 )
 
-echo -e "ПАПКА\tПОЛЬЗОВАТЕЛЬ\tПРОЦЕСС\tPID"
-echo "----------------------------------------"
+# Вывод заголовка с тем же форматированием
+printf "%-20s %-15s %-15s %-8s\n" "ПАПКА" "ПОЛЬЗОВАТЕЛЬ" "ПРОЦЕСС" "PID"
+printf "%s\n" "$(printf '%.0s-' {1..60})"
 
 # Проверка каждого процесса
 for process in "${PROCESSES_TO_CHECK[@]}"; do
