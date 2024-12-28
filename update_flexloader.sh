@@ -17,7 +17,8 @@ fi
 # Функция для проверки статуса процесса
 check_process() {
     local process_name=$1
-    ps -f -u $(whoami) | grep "$process_name" | grep -v grep
+    # Ищем процессы только от текущего пользователя и только в директории FLEXLOADER_HOME
+    ps -f -u $(whoami) | grep "$FLEXLOADER_HOME" | grep "$process_name" | grep -v grep
 }
 
 # Функция для получения последних строк лога
@@ -59,12 +60,12 @@ check_service_health() {
     local retry=0
     
     while [ $retry -lt $max_retries ]; do
-        if ps -f -u $(whoami) | grep "$service_name" | grep -v grep > /dev/null; then
-            echo "Сервис $service_name успешно запущен"
+        if ps -f -u $(whoami) | grep "$FLEXLOADER_HOME" | grep "$service_name" | grep -v grep > /dev/null; then
+            echo "Сервис $service_name успешно запущен в $FLEXLOADER_HOME"
             return 0
         fi
         retry=$((retry + 1))
-        echo "Попытка $retry из $max_retries: Сервис $service_name не запущен"
+        echo "Попытка $retry из $max_retries: Сервис $service_name не запущен в $FLEXLOADER_HOME"
         sleep 5
     done
     
@@ -113,6 +114,7 @@ PROCESSES_TO_CHECK=(
 )
 
 for process in "${PROCESSES_TO_CHECK[@]}"; do
+    echo "Проверка процесса: $process в директории $FLEXLOADER_HOME"
     if check_process "$process"; then
         echo "Останавливаем процесс: $process"
         pkill -f "$process"
