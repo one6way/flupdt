@@ -7,23 +7,26 @@ CURRENT_USER=$(whoami)
 # Функция для получения короткого имени процесса
 get_short_name() {
     local full_name=$1
-    case $full_name in
-        *"extract-all"*) echo "extract-all" ;;
-        *"meta-init"*) echo "meta-init" ;;
-        *"target-init"*) echo "target-init" ;;
-        *"apply-all"*) echo "apply-all" ;;
-        *) echo "$full_name" ;;
-    esac
+    if [[ $full_name == *"extract-all"* ]]; then
+        echo "extract-all"
+    elif [[ $full_name == *"meta-init"* ]]; then
+        echo "meta-init"
+    elif [[ $full_name == *"target-init"* ]]; then
+        echo "target-init"
+    elif [[ $full_name == *"apply-all"* ]]; then
+        echo "apply-all"
+    else
+        echo "$full_name"
+    fi
 }
 
 # Функция для проверки и вывода процесса
 check_process() {
     local process_name=$1
+    local short_name=$(get_short_name "$process_name")
     ps -ef | grep "$process_name" | grep "$CURRENT_USER" | grep "$FLEXLOADER_HOME" | grep -v grep | \
     while read -r line; do
         pid=$(echo "$line" | awk '{print $2}')
-        cmd=$(echo "$line" | awk '{for(i=8;i<=NF;i++) printf "%s ", $i}')
-        short_name=$(get_short_name "$cmd")
         echo -e "$FLEXLOADER_HOME\t$CURRENT_USER\t$short_name\t$pid"
     done
 }
