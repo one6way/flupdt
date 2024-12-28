@@ -13,10 +13,10 @@ mkdir -p "$LOG_DIR"
 
 # Список процессов для проверки и перезапуска
 PROCESSES_TO_CHECK=(
-    "ru.glowbyte.flexloader.CLI extract-all"
-    "ru.glowbyte.flexloader.CLI meta-init-service"
-    "ru.glowbyte.flexloader.CLI target-init-service"
-    "ru.glowbyte.flexloader.CLI apply-all"
+    "meta-init-service"
+    "target-init-service"
+    "extract-all --daemon"
+    "apply-all --daemon"
 )
 
 # Функция для логирования
@@ -132,26 +132,26 @@ wait_for_run_dir_cleanup() {
 # Функция для запуска процесса
 start_process() {
     local process_name=$1
-    local service_type
+    local command
     local max_retries=3
     local retry_count=0
     
     case "$process_name" in
-        *"extract-all"*)
-            service_type="extract-all"
-            ;;
         *"meta-init"*)
-            service_type="meta-init"
+            command="./meta-init-service"
             ;;
         *"target-init"*)
-            service_type="target-init"
+            command="./target-init-service"
+            ;;
+        *"extract-all"*)
+            command="./extract-all --daemon"
             ;;
         *"apply-all"*)
-            service_type="apply-all"
+            command="./apply-all --daemon"
             ;;
     esac
     
-    log_message "Запускаем $service_type..."
+    log_message "Запускаем $command..."
     cd "$FLEXLOADER_HOME" || {
         log_message "ОШИБКА: Не удалось перейти в директорию $FLEXLOADER_HOME"
         exit 1
@@ -159,20 +159,20 @@ start_process() {
     
     # Попытка запуска с повторами при неудаче
     while [ $retry_count -lt $max_retries ]; do
-        nohup java -jar flexloader.jar "$service_type" > "$LOG_DIR/$service_type.log" 2>&1 &
-        sleep 2  # даем процессу время на запуск
+        $command > "$LOG_DIR/$(basename $command).log" 2>&1 &
+        sleep 5  # увеличили время ожидания до 5 секунд между запусками
         
         if [ -n "$(get_process_info "$process_name" | cut -f1)" ]; then
-            log_message "Процесс $service_type успешно запущен"
+            log_message "Процесс $command успешно запущен"
             return 0
         else
             retry_count=$((retry_count + 1))
-            log_message "Попытка $retry_count из $max_retries запустить процесс $service_type"
+            log_message "Попытка $retry_count из $max_retries запустить процесс $command"
             sleep 5
         fi
     done
     
-    log_message "ОШИБКА: Не удалось запустить процесс $service_type после $max_retries попыток"
+    log_message "ОШИБКА: Не удалось запустить процесс $command после $max_retries попыток"
     return 1
 }
 
