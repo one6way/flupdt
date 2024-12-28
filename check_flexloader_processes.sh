@@ -6,7 +6,15 @@ FLEXLOADER_HOME="/opt/flexloader"  # Измените на нужный путь
 # Функция для проверки и вывода PID процесса
 check_process() {
     local process_name=$1
-    ps -f -u $(whoami) | grep "$FLEXLOADER_HOME" | grep "$process_name" | grep -v grep | awk '{print $2 "\t" $NF}'
+    local count=0
+    echo "Процесс: $process_name"
+    ps -f -u $(whoami) | grep "$FLEXLOADER_HOME" | grep "$process_name" | grep -v grep | while read -r line; do
+        count=$((count + 1))
+        pid=$(echo "$line" | awk '{print $2}')
+        path=$(echo "$line" | awk '{print $NF}')
+        echo "  PID $count: $pid\t$path"
+    done
+    echo "-------------------"
 }
 
 # Список процессов для проверки
@@ -16,9 +24,6 @@ PROCESSES_TO_CHECK=(
     "ru.glowbyte.flexloader.CLI target-init"
     "ru.glowbyte.flexloader.CLI apply-all"
 )
-
-echo "PID\tПуть"
-echo "-------------------"
 
 # Проверка каждого процесса
 for process in "${PROCESSES_TO_CHECK[@]}"; do
