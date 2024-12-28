@@ -1,12 +1,13 @@
 #!/bin/bash
 
 # Определение переменных окружения
-FLEXLOADER_HOME="/opt/flexloader"  # Измените на нужный путь
+FLEXLOADER_HOME="/opt/flexloader/flexloader"  # Путь к директории с исполняемыми файлами
 CURRENT_USER=$(whoami)
 MAX_WAIT_TIME=30  # максимальное время ожидания завершения процессов в секундах
-LOG_DIR="$FLEXLOADER_HOME/logs"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"  # Получаем директорию скрипта
+LOG_DIR="$SCRIPT_DIR/logs_restartor"  # Логи храним в папке logs_restartor рядом со скриптом
 RESTART_LOG="$LOG_DIR/restart.log"
-RUN_DIR="$FLEXLOADER_HOME/flexloader/run"
+RUN_DIR="$FLEXLOADER_HOME/run"
 
 # Создаем директорию для логов если её нет
 mkdir -p "$LOG_DIR"
@@ -135,31 +136,52 @@ start_process() {
     local command
     local max_retries=3
     local retry_count=0
+    local log_file
     
     case "$process_name" in
         *"meta-init"*)
             command="./meta-init-service"
+            log_file="meta-init-service.log"
             ;;
         *"target-init"*)
             command="./target-init-service"
+            log_file="target-init-service.log"
             ;;
         *"extract-all"*)
             command="./extract-all --daemon"
+            log_file="extract-all.log"
             ;;
         *"apply-all"*)
             command="./apply-all --daemon"
+            log_file="apply-all.log"
             ;;
     esac
     
     log_message "Запускаем $command..."
+    
+    # Проверяем и переходим в директорию FLEXLOADER_HOME
+    current_dir=$(pwd)
+    log_message "Текущая директория перед cd: $current_dir"
+    
     cd "$FLEXLOADER_HOME" || {
         log_message "ОШИБКА: Не удалось перейти в директорию $FLEXLOADER_HOME"
         exit 1
     }
     
+    current_dir=$(pwd)
+    log_message "Текущая директория после cd: $current_dir"
+    
+    # Проверяем наличие исполняемого файла
+    executable=$(echo $command | cut -d' ' -f1 | sed 's|^./||')
+    if [ ! -x "$executable" ]; then
+        log_message "ОШИБКА: Исполняемый файл $executable не найден или не является исполняемым в директории $FLEXLOADER_HOME"
+        return 1
+    }
+    
     # Попытка запуска с повторами при неудаче
     while [ $retry_count -lt $max_retries ]; do
-        $command > "$LOG_DIR/$(basename $command).log" 2>&1 &
+        log_message "Выполняем команду: $command в директории $(pwd)"
+        $command > "$LOG_DIR/$log_file" 2>&1 &
         sleep 5  # увеличили время ожидания до 5 секунд между запусками
         
         if [ -n "$(get_process_info "$process_name" | cut -f1)" ]; then
