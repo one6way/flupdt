@@ -6,6 +6,7 @@ CURRENT_USER=$(whoami)
 MAX_WAIT_TIME=30  # максимальное время ожидания завершения процессов в секундах
 LOG_DIR="$FLEXLOADER_HOME/logs"
 RESTART_LOG="$LOG_DIR/restart.log"
+RUN_DIR="$FLEXLOADER_HOME/flexloader/run"
 
 # Создаем директорию для логов если её нет
 mkdir -p "$LOG_DIR"
@@ -134,6 +135,45 @@ cleanup_logs() {
     find "$LOG_DIR" -name "*.log" -type f -mtime +$max_log_days -delete
 }
 
+# Функция проверки и ожидания очистки папки run
+wait_for_run_dir_cleanup() {
+    local max_wait=300  # максимальное время ожидания в секундах (5 минут)
+    local wait_time=0
+    local check_interval=5  # интервал проверки в секундах
+
+    log_message "Проверяем папку $RUN_DIR"
+    
+    if [ ! -d "$RUN_DIR" ]; then
+        log_message "Папка $RUN_DIR не существует"
+        return 0
+    }
+
+    while [ $wait_time -lt $max_wait ]; do
+        local dir_count=$(find "$RUN_DIR" -mindepth 1 -maxdepth 1 -type d | wc -l)
+        
+        if [ "$dir_count" -eq 0 ]; then
+            log_message "Папка $RUN_DIR пуста"
+            return 0
+        fi
+
+        log_message "В папке $RUN_DIR найдено $dir_count директорий. Ожидаем их удаления..."
+        sleep $check_interval
+        wait_time=$((wait_time + check_interval))
+        
+        # Показываем прогресс
+        echo -n "."
+    done
+
+    echo ""  # Новая строка после точек
+    
+    if [ $wait_time -ge $max_wait ]; then
+        log_message "ПРЕДУПРЕЖДЕНИЕ: Превышено время ожидания очистки папки $RUN_DIR"
+        log_message "Содержимое папки $RUN_DIR:"
+        ls -la "$RUN_DIR" | tee -a "$RESTART_LOG"
+        return 1
+    fi
+}
+
 # Функция для проверки свободного места
 check_disk_space() {
     local min_space=1000000  # минимум 1GB в KB
@@ -157,6 +197,11 @@ check_disk_space || {
     log_message "Продолжаем несмотря на предупреждение о месте на диске..."
 }
 
+# Ожидаем очистки папки run
+wait_for_run_dir_cleanup || {
+    log_message "Продолжаем несмотря на предупреждение о папке $RUN_DIR..."
+}
+
 # Останавливаем все процессы
 for process in "${PROCESSES_TO_CHECK[@]}"; do
     stop_process "$process"
@@ -169,6 +214,13 @@ log_message "----------------------------------------"
 
 # Очистка старых логов перед запуском
 cleanup_logs
+
+# Ждем очистки папки run перед запуском новых процессов
+log_message "Ожидаем очистки папки $RUN_DIR перед запуском процессов..."
+if ! wait_for_run_dir_cleanup; then
+    log_message "ОШИБКА: Папка $RUN_DIR не была очищена в установленное время"
+    exit 1
+fi
 
 # Запускаем все процессы
 failed_starts=0
