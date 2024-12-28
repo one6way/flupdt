@@ -22,7 +22,7 @@ check_process() {
     ps -ef | grep "$process_name" | grep "$CURRENT_USER" | grep "$FLEXLOADER_HOME" | grep -v grep | \
     while read -r line; do
         pid=$(echo "$line" | awk '{print $2}')
-        cmd=$(echo "$line" | awk '{print $8}')
+        cmd=$(echo "$line" | awk '{for(i=8;i<=NF;i++) printf "%s ", $i}')
         short_name=$(get_short_name "$cmd")
         echo -e "$FLEXLOADER_HOME\t$CURRENT_USER\t$short_name\t$pid"
     done
