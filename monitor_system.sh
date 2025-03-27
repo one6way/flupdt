@@ -260,11 +260,12 @@ check_system_logs() {
 check_oom_events() {
     local last_check=$(date -d "24 hours ago" "+%Y-%m-%d %H:%M:%S")
     
-    echo -e "\n=== OOM Events Report (Last 24 hours) ===" >> "$LOG_FILE"
+    echo -e "\n=== CRITICAL: OOM EVENTS REPORT (Last 24 hours) ===" >> "$LOG_FILE"
     echo "Generated at: $(get_timestamp)" >> "$LOG_FILE"
+    echo "===================================================" >> "$LOG_FILE"
     
     # Get all OOM killed processes from dmesg
-    echo -e "\nAll OOM Killed Processes:" >> "$LOG_FILE"
+    echo -e "\n[CRITICAL] Processes Killed by OOM Killer:" >> "$LOG_FILE"
     dmesg | grep -i "out of memory" | while read -r line; do
         # Extract timestamp from dmesg line
         timestamp=$(echo "$line" | grep -oP "\[.*?\]")
@@ -274,48 +275,54 @@ check_oom_events() {
             if [ ! -z "$dmesg_date" ]; then
                 # Compare with last_check
                 if [[ "$dmesg_date" > "$last_check" ]]; then
-                    echo -e "\nOOM Event:" >> "$LOG_FILE"
-                    echo "$line" >> "$LOG_FILE"
+                    echo -e "\n[CRITICAL] OOM Event Detected at $dmesg_date:" >> "$LOG_FILE"
+                    echo "----------------------------------------" >> "$LOG_FILE"
                     
-                    # Get process details
+                    # Extract process information
                     pid=$(echo "$line" | grep -oP "pid \K\d+")
                     name=$(echo "$line" | grep -oP "process \K\w+")
+                    memory=$(echo "$line" | grep -oP "total-vm:\K[^,]+")
+                    rss=$(echo "$line" | grep -oP "rss:\K[^,]+")
+                    
+                    echo "Process Details:" >> "$LOG_FILE"
                     echo "PID: $pid" >> "$LOG_FILE"
-                    echo "Process Name: $name" >> "$LOG_FILE"
-                    echo "Time: $dmesg_date" >> "$LOG_FILE"
+                    echo "Name: $name" >> "$LOG_FILE"
+                    echo "Total Virtual Memory: $memory" >> "$LOG_FILE"
+                    echo "Resident Set Size: $rss" >> "$LOG_FILE"
+                    
+                    # Get process details from ps if process still exists
+                    if ps -p "$pid" > /dev/null 2>&1; then
+                        echo "Current Process Status:" >> "$LOG_FILE"
+                        ps -p "$pid" -o pid,ppid,user,%cpu,%mem,rss,vsz,cmd,start,stat >> "$LOG_FILE"
+                    fi
                     
                     # Get memory state at time of kill
-                    echo "Memory State:" >> "$LOG_FILE"
+                    echo -e "\nSystem Memory State at Kill:" >> "$LOG_FILE"
                     free -h >> "$LOG_FILE"
                     
                     # Get system load
-                    echo "System Load:" >> "$LOG_FILE"
+                    echo -e "\nSystem Load at Kill:" >> "$LOG_FILE"
                     uptime >> "$LOG_FILE"
                     
                     # Get process details from journal
-                    echo "Process Details:" >> "$LOG_FILE"
+                    echo -e "\nProcess Termination Details:" >> "$LOG_FILE"
                     journalctl --since "$dmesg_date" --until "$(date '+%Y-%m-%d %H:%M:%S')" | grep "pid=$pid" | grep -i "killed\|terminated\|oom" >> "$LOG_FILE"
+                    
+                    # Get memory pressure events around the time of kill
+                    echo -e "\nMemory Pressure Events:" >> "$LOG_FILE"
+                    journalctl --since "$(date -d "$dmesg_date - 5 minutes" '+%Y-%m-%d %H:%M:%S')" --until "$(date -d "$dmesg_date + 5 minutes" '+%Y-%m-%d %H:%M:%S')" | grep -i "memory pressure\|low memory\|swap\|out of memory" >> "$LOG_FILE"
+                    
+                    echo "----------------------------------------" >> "$LOG_FILE"
                 fi
             fi
         fi
     done
     
-    # Get memory pressure events from journal
-    echo -e "\nMemory Pressure Events:" >> "$LOG_FILE"
-    journalctl --since "$last_check" | grep -i "memory pressure\|low memory\|swap\|out of memory" >> "$LOG_FILE"
-    
-    # Get system resource usage at time of OOM
-    echo -e "\nSystem Resource Usage:" >> "$LOG_FILE"
-    echo "Memory Limits:" >> "$LOG_FILE"
-    ulimit -a >> "$LOG_FILE"
-    echo "Current Memory Pressure:" >> "$LOG_FILE"
-    cat /proc/pressure/memory >> "$LOG_FILE"
-    
     # Additional check for killed processes in system logs
-    echo -e "\nAdditional Killed Processes from System Logs:" >> "$LOG_FILE"
+    echo -e "\n[CRITICAL] Additional Process Terminations:" >> "$LOG_FILE"
     journalctl --since "$last_check" | grep -i "killed process" | while read -r line; do
         if [[ $line =~ "killed process" ]]; then
-            echo -e "\nKilled Process Event:" >> "$LOG_FILE"
+            echo -e "\nProcess Termination Event:" >> "$LOG_FILE"
             echo "$line" >> "$LOG_FILE"
             pid=$(echo "$line" | grep -oP "pid \K\d+")
             if [ ! -z "$pid" ]; then
@@ -324,6 +331,15 @@ check_oom_events() {
             fi
         fi
     done
+    
+    # Get current system resource usage
+    echo -e "\nCurrent System Resource Usage:" >> "$LOG_FILE"
+    echo "Memory Limits:" >> "$LOG_FILE"
+    ulimit -a >> "$LOG_FILE"
+    echo -e "\nCurrent Memory Pressure:" >> "$LOG_FILE"
+    cat /proc/pressure/memory >> "$LOG_FILE"
+    
+    echo -e "\n===================================================" >> "$LOG_FILE"
 }
 
 # Function to check directory existence and processes
