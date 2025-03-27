@@ -8,7 +8,25 @@ CHECK_INTERVAL=300  # 5 minutes in seconds
 EMAIL_INTERVAL=1800  # 30 minutes in seconds
 LOG_RETENTION_HOURS=2  # Keep logs for 2 hours
 ENABLE_LOG_CLEANUP=true  # Set to false to disable log cleanup
+
+# Directories to monitor for existence
 MONITOR_DIRS=("/opt/fl/flexloader/run/apl_service" "/opt/fl/flexloader/run/target.init-service" "/opt/fl/flexloader/run/mata.init-service")
+
+# Services to monitor for detailed statistics
+# Format: "Service Name|Process Pattern|Description"
+# Process Pattern can be:
+# - Exact process name
+# - Regular expression
+# - Command line pattern
+MONITOR_SERVICES=(
+    "APL Service|apl_service|APL Service Process"
+    "Target Service|target.init-service|Target Service Process"
+    "Mata Service|mata.init-service|Mata Service Process"
+    "Java Processes|java|Java Virtual Machine Processes"
+    "Database|postgres|PostgreSQL Database"
+    "Web Server|nginx|Nginx Web Server"
+    "System Services|systemd|System Service Manager"
+)
 
 # Function to get current timestamp
 get_timestamp() {
@@ -97,25 +115,42 @@ check_ram_usage() {
     
     # Detailed process information for monitored services
     echo -e "\n=== Detailed Information for Monitored Services ===" >> "$LOG_FILE"
-    for dir in "${MONITOR_DIRS[@]}"; do
-        dir_name=$(basename "$dir")
-        echo -e "\nService: $dir_name" >> "$LOG_FILE"
-        if pgrep -f "$dir_name" > /dev/null; then
-            pid=$(pgrep -f "$dir_name")
-            echo "Process ID: $pid" >> "$LOG_FILE"
-            echo "Command Line: $(ps -p $pid -o cmd=)" >> "$LOG_FILE"
-            echo "Memory Usage: $(ps -p $pid -o %mem,rss,vsz=)" >> "$LOG_FILE"
-            echo "CPU Usage: $(ps -p $pid -o %cpu=)" >> "$LOG_FILE"
-            echo "Start Time: $(ps -p $pid -o start=)" >> "$LOG_FILE"
-            echo "User: $(ps -p $pid -o user=)" >> "$LOG_FILE"
-            echo "Threads: $(ps -p $pid -o nlwp=)" >> "$LOG_FILE"
-            echo "Priority: $(ps -p $pid -o pri=)" >> "$LOG_FILE"
-            echo "CPU Affinity: $(ps -p $pid -o psr=)" >> "$LOG_FILE"
-            echo "Status: $(ps -p $pid -o stat=)" >> "$LOG_FILE"
-            echo "Parent Process: $(ps -p $pid -o ppid=)" >> "$LOG_FILE"
-            echo "Open Files: $(lsof -p $pid | wc -l)" >> "$LOG_FILE"
+    for service in "${MONITOR_SERVICES[@]}"; do
+        IFS='|' read -r service_name pattern description <<< "$service"
+        echo -e "\nService: $service_name ($description)" >> "$LOG_FILE"
+        
+        # Try different methods to find the process
+        pids=$(pgrep -f "$pattern" 2>/dev/null)
+        if [ -n "$pids" ]; then
+            for pid in $pids; do
+                echo -e "\nProcess ID: $pid" >> "$LOG_FILE"
+                echo "Command Line: $(ps -p $pid -o cmd=)" >> "$LOG_FILE"
+                echo "Memory Usage: $(ps -p $pid -o %mem,rss,vsz=)" >> "$LOG_FILE"
+                echo "CPU Usage: $(ps -p $pid -o %cpu=)" >> "$LOG_FILE"
+                echo "Start Time: $(ps -p $pid -o start=)" >> "$LOG_FILE"
+                echo "User: $(ps -p $pid -o user=)" >> "$LOG_FILE"
+                echo "Threads: $(ps -p $pid -o nlwp=)" >> "$LOG_FILE"
+                echo "Priority: $(ps -p $pid -o pri=)" >> "$LOG_FILE"
+                echo "CPU Affinity: $(ps -p $pid -o psr=)" >> "$LOG_FILE"
+                echo "Status: $(ps -p $pid -o stat=)" >> "$LOG_FILE"
+                echo "Parent Process: $(ps -p $pid -o ppid=)" >> "$LOG_FILE"
+                echo "Open Files: $(lsof -p $pid | wc -l)" >> "$LOG_FILE"
+                
+                # Additional process information
+                echo "Process Environment:" >> "$LOG_FILE"
+                cat /proc/$pid/environ 2>/dev/null | tr '\0' '\n' | grep -v '^$' >> "$LOG_FILE"
+                
+                # Process limits
+                echo "Process Limits:" >> "$LOG_FILE"
+                cat /proc/$pid/limits 2>/dev/null >> "$LOG_FILE"
+            done
         else
             echo "Service is not running" >> "$LOG_FILE"
+            # Check if service exists in systemd
+            if systemctl list-unit-files | grep -q "$pattern.service"; then
+                echo "Service exists in systemd but is not running" >> "$LOG_FILE"
+                systemctl status "$pattern.service" 2>/dev/null >> "$LOG_FILE"
+            fi
         fi
     done
     
