@@ -80,18 +80,44 @@ check_ram_usage() {
     echo -e "\n=== Swap Usage ===" >> "$LOG_FILE"
     swapon --show >> "$LOG_FILE"
     
-    # Process memory statistics
-    echo -e "\n=== Process Memory Statistics ===" >> "$LOG_FILE"
-    echo "Format: PID | PPID | User | %CPU | %MEM | RSS | VSZ | Command" >> "$LOG_FILE"
-    ps aux --sort=-%mem | awk '{printf "%-8s %-8s %-10s %-6s %-6s %-10s %-10s %s\n", $2, $3, $1, $3, $4, $6, $5, $11}' >> "$LOG_FILE"
+    # Process memory statistics with detailed information
+    echo -e "\n=== Detailed Process Statistics ===" >> "$LOG_FILE"
+    echo "Format: PID | PPID | User | %CPU | %MEM | RSS | VSZ | Command | Start Time | State | Priority | Threads | CPU Affinity" >> "$LOG_FILE"
+    ps -eo pid,ppid,user,%cpu,%mem,rss,vsz,cmd,start,stat,pri,nlwp,psr --sort=-%mem | \
+    awk '{printf "%-8s %-8s %-10s %-6s %-6s %-10s %-10s %-30s %-20s %-6s %-8s %-8s %-10s\n", 
+         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13}' >> "$LOG_FILE"
     
-    # Process tree with memory usage
-    echo -e "\n=== Process Tree with Memory Usage ===" >> "$LOG_FILE"
-    ps -eo pid,ppid,%mem,rss,cmd --forest >> "$LOG_FILE"
+    # Process tree with memory usage and command line arguments
+    echo -e "\n=== Process Tree with Memory Usage and Arguments ===" >> "$LOG_FILE"
+    ps -eo pid,ppid,%mem,rss,cmd,args --forest >> "$LOG_FILE"
     
-    # Memory usage by user
-    echo -e "\n=== Memory Usage by User ===" >> "$LOG_FILE"
-    ps aux | awk '{sum[$1] += $4} END {for (user in sum) print user, sum[user]"%"}' | sort -k2 -nr >> "$LOG_FILE"
+    # Memory usage by user with process count
+    echo -e "\n=== Memory Usage by User with Process Count ===" >> "$LOG_FILE"
+    ps aux | awk '{sum[$1] += $4; count[$1]++} END {for (user in sum) print user, sum[user]"%", count[user]" processes"}' | sort -k2 -nr >> "$LOG_FILE"
+    
+    # Detailed process information for monitored services
+    echo -e "\n=== Detailed Information for Monitored Services ===" >> "$LOG_FILE"
+    for dir in "${MONITOR_DIRS[@]}"; do
+        dir_name=$(basename "$dir")
+        echo -e "\nService: $dir_name" >> "$LOG_FILE"
+        if pgrep -f "$dir_name" > /dev/null; then
+            pid=$(pgrep -f "$dir_name")
+            echo "Process ID: $pid" >> "$LOG_FILE"
+            echo "Command Line: $(ps -p $pid -o cmd=)" >> "$LOG_FILE"
+            echo "Memory Usage: $(ps -p $pid -o %mem,rss,vsz=)" >> "$LOG_FILE"
+            echo "CPU Usage: $(ps -p $pid -o %cpu=)" >> "$LOG_FILE"
+            echo "Start Time: $(ps -p $pid -o start=)" >> "$LOG_FILE"
+            echo "User: $(ps -p $pid -o user=)" >> "$LOG_FILE"
+            echo "Threads: $(ps -p $pid -o nlwp=)" >> "$LOG_FILE"
+            echo "Priority: $(ps -p $pid -o pri=)" >> "$LOG_FILE"
+            echo "CPU Affinity: $(ps -p $pid -o psr=)" >> "$LOG_FILE"
+            echo "Status: $(ps -p $pid -o stat=)" >> "$LOG_FILE"
+            echo "Parent Process: $(ps -p $pid -o ppid=)" >> "$LOG_FILE"
+            echo "Open Files: $(lsof -p $pid | wc -l)" >> "$LOG_FILE"
+        else
+            echo "Service is not running" >> "$LOG_FILE"
+        fi
+    done
     
     # Memory pressure
     echo -e "\n=== Memory Pressure ===" >> "$LOG_FILE"
@@ -108,6 +134,14 @@ check_ram_usage() {
     # Memory zones
     echo -e "\n=== Memory Zones ===" >> "$LOG_FILE"
     cat /proc/zoneinfo | grep -E "Node|zone" >> "$LOG_FILE"
+    
+    # System load and uptime
+    echo -e "\n=== System Load and Uptime ===" >> "$LOG_FILE"
+    uptime >> "$LOG_FILE"
+    
+    # Process limits
+    echo -e "\n=== Process Resource Limits ===" >> "$LOG_FILE"
+    ulimit -a >> "$LOG_FILE"
     
     echo "=====================================" >> "$LOG_FILE"
     log_script_operation "RAM usage and process statistics check completed"
