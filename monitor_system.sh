@@ -22,32 +22,38 @@ get_current_date() {
 
 # Function to clean old logs
 clean_old_logs() {
-    # Skip if log cleanup is disabled
-    if [ "$ENABLE_LOG_CLEANUP" = false ]; then
-        log_script_operation "Log cleanup is disabled, skipping..."
-        return
-    fi
-
     local current_time=$(date +%s)
     local retention_seconds=$((LOG_RETENTION_HOURS * 3600))
+    local current_date=$(get_current_date)
     
-    # Clean system monitor log
+    # Rotate system monitor log if it exists and is old
     if [ -f "$LOG_FILE" ]; then
         local log_time=$(stat -c %Y "$LOG_FILE")
         if [ $((current_time - log_time)) -gt $retention_seconds ]; then
-            log_script_operation "Cleaning old system monitor log"
-            > "$LOG_FILE"
+            log_script_operation "Rotating old system monitor log"
+            mv "$LOG_FILE" "${LOG_FILE}.${current_date}"
+            touch "$LOG_FILE"
+            chmod 644 "$LOG_FILE"
         fi
     fi
     
-    # Clean script operation log
+    # Rotate script operation log if it exists and is old
     if [ -f "$SCRIPT_LOG_FILE" ]; then
         local log_time=$(stat -c %Y "$SCRIPT_LOG_FILE")
         if [ $((current_time - log_time)) -gt $retention_seconds ]; then
-            log_script_operation "Cleaning old script operation log"
-            > "$SCRIPT_LOG_FILE"
+            log_script_operation "Rotating old script operation log"
+            mv "$SCRIPT_LOG_FILE" "${SCRIPT_LOG_FILE}.${current_date}"
+            touch "$SCRIPT_LOG_FILE"
+            chmod 644 "$SCRIPT_LOG_FILE"
         fi
     fi
+    
+    # Clean up old rotated logs (keep last 5)
+    for log_type in "$LOG_FILE" "$SCRIPT_LOG_FILE"; do
+        if [ -f "$log_type" ]; then
+            ls -t "${log_type}."* 2>/dev/null | tail -n +6 | xargs -r rm
+        fi
+    done
 }
 
 # Function to log script operation
@@ -60,7 +66,7 @@ log_script_operation() {
 # Function to check RAM usage and top processes
 check_ram_usage() {
     log_script_operation "Checking RAM usage and process statistics..."
-    echo "=== Detailed RAM Usage Report at $(get_timestamp) ===" >> "$LOG_FILE"
+    echo -e "\n=== Detailed RAM Usage Report at $(get_timestamp) ===" >> "$LOG_FILE"
     
     # Overall system memory status
     echo -e "\n=== System Memory Overview ===" >> "$LOG_FILE"
@@ -257,4 +263,5 @@ while true; do
     
     log_script_operation "Waiting for next check interval..."
     sleep $CHECK_INTERVAL
+done 
 done 
