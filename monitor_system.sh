@@ -190,14 +190,33 @@ check_system_logs() {
     log_script_operation "Checking system logs for process: $process_name"
     echo "[$(get_timestamp)] Checking system logs for $process_name since $last_check" >> "$LOG_FILE"
     
-    # Check dmesg for OOM kills and kernel messages
-    echo "=== Kernel Messages (dmesg) ===" >> "$LOG_FILE"
-    dmesg | grep -i "out of memory" | grep "$process_name" | grep -A 5 "since $last_check" >> "$LOG_FILE"
-    dmesg | grep -i "killed process" | grep "$process_name" | grep -A 3 "since $last_check" >> "$LOG_FILE"
+    # Check for all OOM killed processes
+    echo -e "\n=== OOM Killed Processes (Last 24 hours) ===" >> "$LOG_FILE"
+    dmesg | grep -i "out of memory" | grep -A 5 "since $last_check" >> "$LOG_FILE"
+    
+    # Get detailed information about killed processes
+    echo -e "\n=== Detailed Information About Killed Processes ===" >> "$LOG_FILE"
+    dmesg | grep -i "killed process" | grep -A 3 "since $last_check" | while read -r line; do
+        if [[ $line =~ "killed process" ]]; then
+            pid=$(echo "$line" | grep -oP "pid \K\d+")
+            name=$(echo "$line" | grep -oP "process \K\w+")
+            echo -e "\nProcess Killed:" >> "$LOG_FILE"
+            echo "PID: $pid" >> "$LOG_FILE"
+            echo "Name: $name" >> "$LOG_FILE"
+            
+            # Get process details from journal
+            echo "Process Details:" >> "$LOG_FILE"
+            journalctl --since "$last_check" | grep "pid=$pid" | grep -i "killed\|terminated\|oom" >> "$LOG_FILE"
+            
+            # Get memory state at time of kill
+            echo "Memory State:" >> "$LOG_FILE"
+            free -h >> "$LOG_FILE"
+        fi
+    done
     
     # Check system journal for process termination and system events
     echo -e "\n=== System Journal Events ===" >> "$LOG_FILE"
-    journalctl --since "$last_check" | grep "$process_name" | grep -i "killed\|terminated\|oom\|failed\|error" >> "$LOG_FILE"
+    journalctl --since "$last_check" | grep -i "killed\|terminated\|oom\|failed\|error" >> "$LOG_FILE"
     
     # Check system logs for memory pressure and system state
     echo -e "\n=== System Memory State ===" >> "$LOG_FILE"
@@ -235,6 +254,52 @@ check_system_logs() {
     fi
     
     log_script_operation "System logs check completed for $process_name"
+}
+
+# Function to check for OOM events
+check_oom_events() {
+    local last_check=$(date -d "24 hours ago" "+%Y-%m-%d %H:%M:%S")
+    
+    echo -e "\n=== OOM Events Report (Last 24 hours) ===" >> "$LOG_FILE"
+    echo "Generated at: $(get_timestamp)" >> "$LOG_FILE"
+    
+    # Get all OOM killed processes
+    echo -e "\nAll OOM Killed Processes:" >> "$LOG_FILE"
+    dmesg | grep -i "out of memory" | grep -A 5 "since $last_check" | while read -r line; do
+        if [[ $line =~ "out of memory" ]]; then
+            echo -e "\nOOM Event:" >> "$LOG_FILE"
+            echo "$line" >> "$LOG_FILE"
+            
+            # Get process details
+            pid=$(echo "$line" | grep -oP "pid \K\d+")
+            name=$(echo "$line" | grep -oP "process \K\w+")
+            echo "PID: $pid" >> "$LOG_FILE"
+            echo "Process Name: $name" >> "$LOG_FILE"
+            
+            # Get memory state at time of kill
+            echo "Memory State:" >> "$LOG_FILE"
+            free -h >> "$LOG_FILE"
+            
+            # Get system load
+            echo "System Load:" >> "$LOG_FILE"
+            uptime >> "$LOG_FILE"
+            
+            # Get process details from journal
+            echo "Process Details:" >> "$LOG_FILE"
+            journalctl --since "$last_check" | grep "pid=$pid" | grep -i "killed\|terminated\|oom" >> "$LOG_FILE"
+        fi
+    done
+    
+    # Get memory pressure events
+    echo -e "\nMemory Pressure Events:" >> "$LOG_FILE"
+    journalctl --since "$last_check" | grep -i "memory pressure\|low memory\|swap\|out of memory" >> "$LOG_FILE"
+    
+    # Get system resource usage at time of OOM
+    echo -e "\nSystem Resource Usage:" >> "$LOG_FILE"
+    echo "Memory Limits:" >> "$LOG_FILE"
+    ulimit -a >> "$LOG_FILE"
+    echo "Current Memory Pressure:" >> "$LOG_FILE"
+    cat /proc/pressure/memory >> "$LOG_FILE"
 }
 
 # Function to check directory existence and processes
@@ -309,6 +374,28 @@ for dir in "${MONITOR_DIRS[@]}"; do
 done
 echo "==============================================="
 
+# Function to create OOM events summary
+create_oom_summary() {
+    local last_check=$(date -d "24 hours ago" "+%Y-%m-%d %H:%M:%S")
+    
+    echo -e "\n=== CRITICAL: OOM EVENTS SUMMARY (Last 24 hours) ===" >> "$LOG_FILE"
+    echo "Generated at: $(get_timestamp)" >> "$LOG_FILE"
+    echo "===================================================" >> "$LOG_FILE"
+    
+    # Get all OOM killed processes
+    dmesg | grep -i "out of memory" | grep -A 5 "since $last_check" | while read -r line; do
+        if [[ $line =~ "out of memory" ]]; then
+            echo -e "\n[CRITICAL] OOM Event Detected:" >> "$LOG_FILE"
+            echo "Time: $(echo "$line" | grep -oP "\[.*?\]")" >> "$LOG_FILE"
+            echo "Process: $(echo "$line" | grep -oP "process \K\w+")" >> "$LOG_FILE"
+            echo "PID: $(echo "$line" | grep -oP "pid \K\d+")" >> "$LOG_FILE"
+            echo "Memory State at Kill:" >> "$LOG_FILE"
+            free -h >> "$LOG_FILE"
+            echo "-------------------------------------------" >> "$LOG_FILE"
+        fi
+    done
+}
+
 # Main monitoring loop
 last_email_time=0
 
@@ -318,8 +405,14 @@ while true; do
     # Clean old logs
     clean_old_logs
     
+    # Create OOM events summary at the beginning of the log
+    create_oom_summary
+    
     # Check RAM usage every 5 minutes
     check_ram_usage
+    
+    # Check for OOM events
+    check_oom_events
     
     # Check directories
     check_directories
@@ -332,5 +425,4 @@ while true; do
     
     log_script_operation "Waiting for next check interval..."
     sleep $CHECK_INTERVAL
-done 
 done 
