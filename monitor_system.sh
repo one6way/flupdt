@@ -508,30 +508,33 @@ collect_killed_process_info() {
     echo "Generated at: $(get_timestamp)" >> "$LOG_FILE"
     echo "===================================================" >> "$LOG_FILE"
     
-    # Check dmesg for OOM kills
+    # Check dmesg for OOM kills (without time filtering first)
     echo -e "\n[CRITICAL] OOM Killer Events from dmesg:" >> "$LOG_FILE"
     dmesg | grep -i "out of memory" | while read -r line; do
-        timestamp=$(echo "$line" | grep -oP "\[.*?\]")
-        if [ ! -z "$timestamp" ]; then
-            dmesg_date=$(date -d "$timestamp" "+%Y-%m-%d %H:%M:%S" 2>/dev/null)
-            if [ ! -z "$dmesg_date" ] && [[ "$dmesg_date" > "$last_check" ]]; then
-                echo -e "\nOOM Event at $dmesg_date:" >> "$LOG_FILE"
-                echo "$line" >> "$LOG_FILE"
-                pid=$(echo "$line" | grep -oP "pid \K\d+")
-                if [ ! -z "$pid" ]; then
-                    echo "Process Details:" >> "$LOG_FILE"
-                    echo "PID: $pid" >> "$LOG_FILE"
-                    echo "Name: $(echo "$line" | grep -oP "process \K\w+")" >> "$LOG_FILE"
-                    echo "Memory Usage: $(echo "$line" | grep -oP "total-vm:\K[^,]+")" >> "$LOG_FILE"
-                    echo "RSS: $(echo "$line" | grep -oP "rss:\K[^,]+")" >> "$LOG_FILE"
-                fi
+        echo -e "\nOOM Event:" >> "$LOG_FILE"
+        echo "$line" >> "$LOG_FILE"
+        
+        # Extract process information
+        pid=$(echo "$line" | grep -oP "pid \K\d+")
+        if [ ! -z "$pid" ]; then
+            echo "Process Details:" >> "$LOG_FILE"
+            echo "PID: $pid" >> "$LOG_FILE"
+            echo "Name: $(echo "$line" | grep -oP "process \K\w+")" >> "$LOG_FILE"
+            echo "Memory Usage: $(echo "$line" | grep -oP "total-vm:\K[^,]+")" >> "$LOG_FILE"
+            echo "RSS: $(echo "$line" | grep -oP "rss:\K[^,]+")" >> "$LOG_FILE"
+            
+            # Try to get additional process info
+            if [ -d "/proc/$pid" ]; then
+                echo "Executable Path: $(readlink -f /proc/$pid/exe 2>/dev/null)" >> "$LOG_FILE"
+                echo "Working Directory: $(readlink -f /proc/$pid/cwd 2>/dev/null)" >> "$LOG_FILE"
+                echo "Command Line: $(cat /proc/$pid/cmdline 2>/dev/null)" >> "$LOG_FILE"
             fi
         fi
     done
     
-    # Check system journal
+    # Check system journal (without time filtering first)
     echo -e "\n[CRITICAL] Process Terminations from System Journal:" >> "$LOG_FILE"
-    journalctl --since "$last_check" | grep -i "killed process\|out of memory" | while read -r line; do
+    journalctl | grep -i "killed process\|out of memory" | while read -r line; do
         if [[ $line =~ "killed process" ]] || [[ $line =~ "out of memory" ]]; then
             echo -e "\nEvent:" >> "$LOG_FILE"
             echo "$line" >> "$LOG_FILE"
@@ -551,7 +554,7 @@ collect_killed_process_info() {
     # Check system logs
     echo -e "\n[CRITICAL] Process Terminations from System Logs:" >> "$LOG_FILE"
     if [ -f "/var/log/syslog" ]; then
-        grep -i "killed process\|out of memory" /var/log/syslog | grep "$last_check" >> "$LOG_FILE"
+        grep -i "killed process\|out of memory" /var/log/syslog >> "$LOG_FILE"
     fi
     
     # Check audit logs if available
@@ -576,6 +579,10 @@ collect_killed_process_info() {
             grep -i "killed process\|out of memory" "$log_file" | tail -n 10 >> "$LOG_FILE"
         fi
     done
+    
+    # Additional check for OOM events in kernel ring buffer
+    echo -e "\n[CRITICAL] Additional OOM Events from Kernel Ring Buffer:" >> "$LOG_FILE"
+    dmesg -T | grep -i "out of memory" >> "$LOG_FILE"
     
     echo -e "\n===================================================" >> "$LOG_FILE"
 }
