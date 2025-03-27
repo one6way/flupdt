@@ -500,6 +500,86 @@ create_oom_summary() {
     echo -e "\n===================================================" >> "$LOG_FILE"
 }
 
+# Function to collect detailed information about killed processes
+collect_killed_process_info() {
+    local last_check=$(date -d "24 hours ago" "+%Y-%m-%d %H:%M:%S")
+    
+    echo -e "\n=== DETAILED KILLED PROCESSES REPORT (Last 24 hours) ===" >> "$LOG_FILE"
+    echo "Generated at: $(get_timestamp)" >> "$LOG_FILE"
+    echo "===================================================" >> "$LOG_FILE"
+    
+    # Check dmesg for OOM kills
+    echo -e "\n[CRITICAL] OOM Killer Events from dmesg:" >> "$LOG_FILE"
+    dmesg | grep -i "out of memory" | while read -r line; do
+        timestamp=$(echo "$line" | grep -oP "\[.*?\]")
+        if [ ! -z "$timestamp" ]; then
+            dmesg_date=$(date -d "$timestamp" "+%Y-%m-%d %H:%M:%S" 2>/dev/null)
+            if [ ! -z "$dmesg_date" ] && [[ "$dmesg_date" > "$last_check" ]]; then
+                echo -e "\nOOM Event at $dmesg_date:" >> "$LOG_FILE"
+                echo "$line" >> "$LOG_FILE"
+                pid=$(echo "$line" | grep -oP "pid \K\d+")
+                if [ ! -z "$pid" ]; then
+                    echo "Process Details:" >> "$LOG_FILE"
+                    echo "PID: $pid" >> "$LOG_FILE"
+                    echo "Name: $(echo "$line" | grep -oP "process \K\w+")" >> "$LOG_FILE"
+                    echo "Memory Usage: $(echo "$line" | grep -oP "total-vm:\K[^,]+")" >> "$LOG_FILE"
+                    echo "RSS: $(echo "$line" | grep -oP "rss:\K[^,]+")" >> "$LOG_FILE"
+                fi
+            fi
+        fi
+    done
+    
+    # Check system journal
+    echo -e "\n[CRITICAL] Process Terminations from System Journal:" >> "$LOG_FILE"
+    journalctl --since "$last_check" | grep -i "killed process\|out of memory" | while read -r line; do
+        if [[ $line =~ "killed process" ]] || [[ $line =~ "out of memory" ]]; then
+            echo -e "\nEvent:" >> "$LOG_FILE"
+            echo "$line" >> "$LOG_FILE"
+            pid=$(echo "$line" | grep -oP "pid \K\d+")
+            if [ ! -z "$pid" ]; then
+                echo "Process Details:" >> "$LOG_FILE"
+                # Try to get process info from proc if still exists
+                if [ -d "/proc/$pid" ]; then
+                    echo "Executable Path: $(readlink -f /proc/$pid/exe 2>/dev/null)" >> "$LOG_FILE"
+                    echo "Working Directory: $(readlink -f /proc/$pid/cwd 2>/dev/null)" >> "$LOG_FILE"
+                    echo "Command Line: $(cat /proc/$pid/cmdline 2>/dev/null)" >> "$LOG_FILE"
+                fi
+            fi
+        fi
+    done
+    
+    # Check system logs
+    echo -e "\n[CRITICAL] Process Terminations from System Logs:" >> "$LOG_FILE"
+    if [ -f "/var/log/syslog" ]; then
+        grep -i "killed process\|out of memory" /var/log/syslog | grep "$last_check" >> "$LOG_FILE"
+    fi
+    
+    # Check audit logs if available
+    if command -v ausearch >/dev/null 2>&1; then
+        echo -e "\n[CRITICAL] Process Terminations from Audit Logs:" >> "$LOG_FILE"
+        ausearch -ts recent -k kill >> "$LOG_FILE"
+    fi
+    
+    # Check for deleted processes in proc
+    echo -e "\n[CRITICAL] Recently Deleted Processes:" >> "$LOG_FILE"
+    ls -l /proc/*/exe 2>/dev/null | grep -i "deleted" >> "$LOG_FILE"
+    
+    # Check systemd logs for service terminations
+    echo -e "\n[CRITICAL] Service Terminations from Systemd:" >> "$LOG_FILE"
+    journalctl -u systemd-journald | grep -i "killed process" >> "$LOG_FILE"
+    
+    # Check application logs if they exist
+    echo -e "\n[CRITICAL] Application Logs:" >> "$LOG_FILE"
+    for log_file in /var/log/*.log; do
+        if [ -f "$log_file" ]; then
+            echo "Checking $log_file:" >> "$LOG_FILE"
+            grep -i "killed process\|out of memory" "$log_file" | tail -n 10 >> "$LOG_FILE"
+        fi
+    done
+    
+    echo -e "\n===================================================" >> "$LOG_FILE"
+}
+
 # Main monitoring loop
 last_email_time=0
 
@@ -511,6 +591,9 @@ while true; do
     
     # Create OOM events summary at the beginning of the log
     create_oom_summary
+    
+    # Collect detailed information about killed processes
+    collect_killed_process_info
     
     # Check RAM usage every 5 minutes
     check_ram_usage
