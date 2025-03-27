@@ -528,7 +528,43 @@ collect_killed_process_info() {
                 echo "Executable Path: $(readlink -f /proc/$pid/exe 2>/dev/null)" >> "$LOG_FILE"
                 echo "Working Directory: $(readlink -f /proc/$pid/cwd 2>/dev/null)" >> "$LOG_FILE"
                 echo "Command Line: $(cat /proc/$pid/cmdline 2>/dev/null)" >> "$LOG_FILE"
+                echo "Environment Variables:" >> "$LOG_FILE"
+                cat /proc/$pid/environ 2>/dev/null | tr '\0' '\n' >> "$LOG_FILE"
+                echo "Process Status:" >> "$LOG_FILE"
+                cat /proc/$pid/status 2>/dev/null >> "$LOG_FILE"
+                echo "Process Limits:" >> "$LOG_FILE"
+                cat /proc/$pid/limits 2>/dev/null >> "$LOG_FILE"
+                echo "Process Maps:" >> "$LOG_FILE"
+                cat /proc/$pid/maps 2>/dev/null >> "$LOG_FILE"
             fi
+            
+            # Get process tree
+            echo "Process Tree:" >> "$LOG_FILE"
+            pstree -p $pid 2>/dev/null >> "$LOG_FILE"
+            
+            # Get process owner and group
+            echo "Process Owner:" >> "$LOG_FILE"
+            ps -p $pid -o user,group,uid,gid 2>/dev/null >> "$LOG_FILE"
+            
+            # Get process start time and runtime
+            echo "Process Start Time and Runtime:" >> "$LOG_FILE"
+            ps -p $pid -o pid,start,etime,cmd 2>/dev/null >> "$LOG_FILE"
+            
+            # Get process resource usage
+            echo "Process Resource Usage:" >> "$LOG_FILE"
+            ps -p $pid -o pid,ppid,%cpu,%mem,rss,vsz,cmd 2>/dev/null >> "$LOG_FILE"
+            
+            # Get process open files
+            echo "Process Open Files:" >> "$LOG_FILE"
+            lsof -p $pid 2>/dev/null >> "$LOG_FILE"
+            
+            # Get process network connections
+            echo "Process Network Connections:" >> "$LOG_FILE"
+            netstat -tunp 2>/dev/null | grep $pid >> "$LOG_FILE"
+            
+            # Get process system calls
+            echo "Process System Calls:" >> "$LOG_FILE"
+            strace -p $pid 2>/dev/null | head -n 20 >> "$LOG_FILE"
         fi
     done
     
@@ -546,6 +582,8 @@ collect_killed_process_info() {
                     echo "Executable Path: $(readlink -f /proc/$pid/exe 2>/dev/null)" >> "$LOG_FILE"
                     echo "Working Directory: $(readlink -f /proc/$pid/cwd 2>/dev/null)" >> "$LOG_FILE"
                     echo "Command Line: $(cat /proc/$pid/cmdline 2>/dev/null)" >> "$LOG_FILE"
+                    echo "Process Status:" >> "$LOG_FILE"
+                    cat /proc/$pid/status 2>/dev/null >> "$LOG_FILE"
                 fi
             fi
         fi
