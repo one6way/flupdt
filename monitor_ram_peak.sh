@@ -4,15 +4,17 @@
 LOG_DIR="/var/log/ram_monitor"
 LOG_FILE="$LOG_DIR/ram_peak.log"
 PEAK_FILE="$LOG_DIR/absolute_peaks.txt"
-CHECK_INTERVAL=60  # Check every minute
-REPORT_INTERVAL=1200  # Report every 20 minutes
-MAX_LOG_AGE=7  # Keep logs for 7 days
+MONITOR_INTERVAL=60  # seconds
+REPORT_INTERVAL=1200  # 20 minutes
+LOG_ROTATE_INTERVAL=7200  # 2 hours
+MAX_ARCHIVES=36  # keep last 36 archives (3 days with 2-hour rotation)
 
 # Function to create log directory if it doesn't exist
 create_log_dir() {
     if [ ! -d "$LOG_DIR" ]; then
         mkdir -p "$LOG_DIR"
         chmod 755 "$LOG_DIR"
+        log_message "Created log directory: $LOG_DIR"
     fi
 }
 
@@ -87,20 +89,23 @@ update_absolute_peaks() {
 rotate_logs() {
     local current_date=$(date '+%Y-%m-%d')
     local current_time=$(date '+%H-%M-%S')
-    local old_log="$LOG_FILE.$current_date.$current_time"
+    local old_log="$LOG_FILE.$current_date.$current_time.gz"
     
-    # Always rotate the current log file
+    # Compress the current log
     if [ -f "$LOG_FILE" ]; then
-        mv "$LOG_FILE" "$old_log"
-        gzip "$old_log"
-        log_message "Rotated log file to $old_log.gz"
-        # Create new empty log file
-        touch "$LOG_FILE"
-        chmod 644 "$LOG_FILE"
+        gzip -c "$LOG_FILE" > "$old_log"
+        rm -f "$LOG_FILE"
+        log_message "Rotated log file to $old_log"
     fi
     
-    # Clean up old logs
-    find "$LOG_DIR" -name "ram_peak.log.*.gz" -mtime +$MAX_LOG_AGE -delete
+    # Create new empty log file
+    touch "$LOG_FILE"
+    chmod 644 "$LOG_FILE"
+    
+    # Delete old archives, keeping only the last MAX_ARCHIVES (3 days)
+    cd "$LOG_DIR" || exit
+    ls -t ram_peak.log.*.gz 2>/dev/null | tail -n +$((MAX_ARCHIVES + 1)) | xargs -r rm -f
+    log_message "Cleaned up old log archives, keeping last $MAX_ARCHIVES (3 days of logs)"
 }
 
 # Function to log messages
@@ -199,10 +204,10 @@ create_log_dir
 init_peak_file
 echo "System Peak Monitor Started"
 log_message "System Peak Monitor Started"
-echo "Monitoring interval: $CHECK_INTERVAL seconds"
+echo "Monitoring interval: $MONITOR_INTERVAL seconds"
 echo "Report interval: $REPORT_INTERVAL seconds"
-echo "Log rotation interval: 300 seconds"
-echo "Log directory: $LOG_DIR"
+echo "Log rotation interval: $LOG_ROTATE_INTERVAL seconds"
+echo "Maximum archives to keep: $MAX_ARCHIVES"
 echo "Current time: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "----------------------------------------"
 
@@ -256,8 +261,8 @@ while true; do
         echo "----------------------------------------"
     fi
     
-    # Check if it's time to rotate logs (every 5 minutes)
-    if (( current_time - last_rotation >= 300 )); then
+    # Check if it's time to rotate logs (every 2 hours)
+    if (( current_time - last_rotation >= LOG_ROTATE_INTERVAL )); then
         echo "[$(date '+%H:%M:%S')] Rotating logs..."
         rotate_logs
         last_rotation=$current_time
@@ -270,5 +275,5 @@ while true; do
         echo "[$(date '+%H:%M:%S')] Current status - RAM: ${current_ram_usage}MB (${current_ram_percentage}%), CPU: ${current_cpu_usage}%"
     fi
     
-    sleep $CHECK_INTERVAL
+    sleep $MONITOR_INTERVAL
 done 
