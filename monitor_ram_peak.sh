@@ -21,14 +21,14 @@ rotate_logs() {
     local current_time=$(date '+%H-%M-%S')
     local old_log="$LOG_FILE.$current_date.$current_time"
     
-    # Only rotate if the log file exists and is older than 5 minutes
+    # Always rotate the current log file
     if [ -f "$LOG_FILE" ]; then
-        local file_age=$(($(date +%s) - $(stat -c %Y "$LOG_FILE")))
-        if [ $file_age -ge 300 ]; then  # 300 seconds = 5 minutes
-            mv "$LOG_FILE" "$old_log"
-            gzip "$old_log"
-            log_message "Rotated log file after $file_age seconds"
-        fi
+        mv "$LOG_FILE" "$old_log"
+        gzip "$old_log"
+        log_message "Rotated log file to $old_log.gz"
+        # Create new empty log file
+        touch "$LOG_FILE"
+        chmod 644 "$LOG_FILE"
     fi
     
     # Clean up old logs
