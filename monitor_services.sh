@@ -64,17 +64,20 @@ check_service() {
     local pattern="${SERVICE_PATTERNS[$service]}"
     local dir="${SERVICE_DIRS[$service]}"
     
-    # Check if process exists and is running from correct directory
-    if ps -ef | grep -v grep | grep "$pattern" | grep -q "$BASE_DIR/$dir"; then
-        return 0  # Service is running from correct directory
-    else
-        # Check if process exists at all
-        if ps -ef | grep -v grep | grep -q "$pattern"; then
-            log_message "Warning: $service process found but not running from $BASE_DIR/$dir"
-            return 1  # Service is running but from wrong location
+    # Get process ID if exists
+    local pid=$(ps -ef | grep -v grep | grep "$pattern" | awk '{print $2}')
+    
+    if [ -n "$pid" ]; then
+        # Check process working directory
+        local pwd=$(readlink -f /proc/$pid/cwd)
+        if [ "$pwd" = "$BASE_DIR/$dir" ]; then
+            return 0  # Service is running from correct directory
         else
-            return 1  # Service is not running at all
+            log_message "Warning: $service process (PID: $pid) found but running from wrong directory: $pwd (expected: $BASE_DIR/$dir)"
+            return 1  # Service is running but from wrong location
         fi
+    else
+        return 1  # Service is not running at all
     fi
 }
 
@@ -84,10 +87,17 @@ get_service_status() {
     local pattern="${SERVICE_PATTERNS[$service]}"
     local dir="${SERVICE_DIRS[$service]}"
     
-    if ps -ef | grep -v grep | grep "$pattern" | grep -q "$BASE_DIR/$dir"; then
-        echo "RUNNING"
-    elif ps -ef | grep -v grep | grep -q "$pattern"; then
-        echo "WRONG_LOCATION"
+    # Get process ID if exists
+    local pid=$(ps -ef | grep -v grep | grep "$pattern" | awk '{print $2}')
+    
+    if [ -n "$pid" ]; then
+        # Check process working directory
+        local pwd=$(readlink -f /proc/$pid/cwd)
+        if [ "$pwd" = "$BASE_DIR/$dir" ]; then
+            echo "RUNNING"
+        else
+            echo "WRONG_LOCATION"
+        fi
     elif [ -d "$BASE_DIR/$dir" ]; then
         echo "STOPPED"
     else
