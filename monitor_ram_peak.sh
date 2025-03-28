@@ -20,9 +20,14 @@ rotate_logs() {
     local current_date=$(date '+%Y-%m-%d')
     local old_log="$LOG_FILE.$current_date"
     
+    # Only rotate if the log file exists and is older than 5 minutes
     if [ -f "$LOG_FILE" ]; then
-        mv "$LOG_FILE" "$old_log"
-        gzip "$old_log"
+        local file_age=$(($(date +%s) - $(stat -c %Y "$LOG_FILE")))
+        if [ $file_age -ge 300 ]; then  # 300 seconds = 5 minutes
+            mv "$LOG_FILE" "$old_log"
+            gzip "$old_log"
+            log_message "Rotated log file after $file_age seconds"
+        fi
     fi
     
     # Clean up old logs
@@ -123,6 +128,7 @@ peak_ram_percentage=0
 peak_cpu_usage=0
 peak_time=""
 start_time=$(date +%s)
+last_rotation=$(date +%s)
 
 while true; do
     current_time=$(date +%s)
@@ -156,6 +162,11 @@ while true; do
         start_time=$current_time
     fi
     
+    # Check if it's time to rotate logs (every 5 minutes)
+    if (( current_time - last_rotation >= 300 )); then
+        rotate_logs
+        last_rotation=$current_time
+    fi
+    
     sleep $CHECK_INTERVAL
-    rotate_logs
 done 
