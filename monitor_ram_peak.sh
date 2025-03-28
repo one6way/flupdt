@@ -115,19 +115,20 @@ log_message() {
     echo "[$timestamp] $1"
 }
 
-# Function to get current RAM usage
+# Get RAM usage
 get_ram_usage() {
-    free -m | grep Mem | awk '{print $3}'
+    ram_usage=$(free -m | awk '/Mem:/ {print $3}')
+    ram_percent=$(free | awk '/Mem:/ {printf "%.1f", $3/$2 * 100.0}')
+}
+
+# Get CPU usage
+get_cpu_usage() {
+    cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d. -f1)
 }
 
 # Function to get current RAM usage percentage
 get_ram_percentage() {
     free | grep Mem | awk '{print $3/$2 * 100.0}'
-}
-
-# Function to get current CPU usage percentage
-get_cpu_usage() {
-    top -bn1 | grep "Cpu(s)" | awk '{print $2}'
 }
 
 # Function to get detailed process info
@@ -207,6 +208,9 @@ main() {
     local last_report=0
     local last_rotate=0
     local current_time
+    local ram_usage=0
+    local ram_percent=0
+    local cpu_usage=0
     
     echo "Starting RAM and CPU monitoring..."
     echo "Monitor interval: $MONITOR_INTERVAL seconds"
