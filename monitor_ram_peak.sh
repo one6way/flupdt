@@ -50,14 +50,6 @@ update_absolute_peaks() {
     local current_time=$(date '+%Y-%m-%d %H:%M:%S')
     local updated=false
 
-    # Округляем значения до целых чисел
-    current_ram=$(printf "%.0f" "$current_ram")
-    current_ram_percent=$(printf "%.0f" "$current_ram_percent")
-    current_cpu=$(printf "%.0f" "$current_cpu")
-    RAM_PEAK=$(printf "%.0f" "$RAM_PEAK")
-    RAM_PEAK_PERCENT=$(printf "%.0f" "$RAM_PEAK_PERCENT")
-    CPU_PEAK=$(printf "%.0f" "$CPU_PEAK")
-
     # Проверяем и обновляем пиковые значения
     if [ "$current_ram" -gt "$RAM_PEAK" ]; then
         RAM_PEAK=$current_ram
@@ -117,13 +109,13 @@ log_message() {
 
 # Get RAM usage
 get_ram_usage() {
-    ram_usage=$(free -m | awk '/Mem:/ {print $3}')
-    ram_percent=$(free | awk '/Mem:/ {printf "%.1f", $3/$2 * 100.0}')
+    ram_usage=$(free -m | awk '/Mem:/ {print int($3)}')
+    ram_percent=$(free | awk '/Mem:/ {print int($3/$2 * 100)}')
 }
 
 # Get CPU usage
 get_cpu_usage() {
-    cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d. -f1)
+    cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print int($2)}')
 }
 
 # Function to get current RAM usage percentage
