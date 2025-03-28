@@ -199,81 +199,51 @@ generate_peak_report() {
     log_message "====================================="
 }
 
-# Main script
-create_log_dir
-init_peak_file
-echo "System Peak Monitor Started"
-log_message "System Peak Monitor Started"
-echo "Monitoring interval: $MONITOR_INTERVAL seconds"
-echo "Report interval: $REPORT_INTERVAL seconds"
-echo "Log rotation interval: $LOG_ROTATE_INTERVAL seconds"
-echo "Maximum archives to keep: $MAX_ARCHIVES"
-echo "Current time: $(date '+%Y-%m-%d %H:%M:%S')"
-echo "----------------------------------------"
-
-# Initialize variables
-peak_ram_usage=0
-peak_ram_percentage=0
-peak_cpu_usage=0
-peak_time=""
-start_time=$(date +%s)
-last_rotation=$(date +%s)
-check_count=0
-
-while true; do
-    current_time=$(date +%s)
-    current_ram_usage=$(get_ram_usage)
-    current_ram_percentage=$(get_ram_percentage)
-    current_cpu_usage=$(get_cpu_usage)
+# Main monitoring loop
+main() {
+    create_log_dir
+    init_peak_file
     
-    # Update absolute peaks
-    update_absolute_peaks "$current_ram_usage" "$current_ram_percentage" "$current_cpu_usage" "$(date '+%Y-%m-%d %H:%M:%S')"
+    local last_report=0
+    local last_rotate=0
+    local current_time
     
-    # Update interval peak if current usage is higher
-    if (( $(echo "$current_ram_usage > $peak_ram_usage" | bc -l) )); then
-        peak_ram_usage=$current_ram_usage
-        peak_ram_percentage=$current_ram_percentage
-        peak_time=$(date '+%Y-%m-%d %H:%M:%S')
-        echo "[$(date '+%H:%M:%S')] New RAM peak: ${peak_ram_usage}MB (${peak_ram_percentage}%)"
-    fi
+    echo "Starting RAM and CPU monitoring..."
+    echo "Monitor interval: $MONITOR_INTERVAL seconds"
+    echo "Report interval: $REPORT_INTERVAL seconds"
+    echo "Log rotation interval: $LOG_ROTATE_INTERVAL seconds"
+    echo "Maximum archives to keep: $MAX_ARCHIVES"
     
-    if (( $(echo "$current_cpu_usage > $peak_cpu_usage" | bc -l) )); then
-        peak_cpu_usage=$current_cpu_usage
-        if [ -z "$peak_time" ]; then
-            peak_time=$(date '+%Y-%m-%d %H:%M:%S')
-        fi
-        echo "[$(date '+%H:%M:%S')] New CPU peak: ${peak_cpu_usage}%"
-    fi
-    
-    # Check if it's time to generate report (every 20 minutes)
-    if (( current_time - start_time >= REPORT_INTERVAL )); then
-        echo "----------------------------------------"
-        echo "[$(date '+%H:%M:%S')] Generating report..."
-        generate_peak_report "$peak_time" "$peak_ram_usage" "$peak_ram_percentage" "$peak_cpu_usage"
-        echo "[$(date '+%H:%M:%S')] Report generated"
+    while true; do
+        current_time=$(date +%s)
         
-        # Reset interval peak values for next interval
-        peak_ram_usage=0
-        peak_ram_percentage=0
-        peak_cpu_usage=0
-        peak_time=""
-        start_time=$current_time
-        echo "----------------------------------------"
-    fi
-    
-    # Check if it's time to rotate logs (every 2 hours)
-    if (( current_time - last_rotation >= LOG_ROTATE_INTERVAL )); then
-        echo "[$(date '+%H:%M:%S')] Rotating logs..."
-        rotate_logs
-        last_rotation=$current_time
-        echo "[$(date '+%H:%M:%S')] Logs rotated"
-    fi
-    
-    # Print current status every 5 checks
-    ((check_count++))
-    if [ $((check_count % 5)) -eq 0 ]; then
-        echo "[$(date '+%H:%M:%S')] Current status - RAM: ${current_ram_usage}MB (${current_ram_percentage}%), CPU: ${current_cpu_usage}%"
-    fi
-    
-    sleep $MONITOR_INTERVAL
-done 
+        # Check if it's time to rotate logs (every 2 hours)
+        if [ $((current_time - last_rotate)) -ge $LOG_ROTATE_INTERVAL ]; then
+            echo "[$(date '+%H:%M:%S')] Rotating logs..."
+            rotate_logs
+            last_rotate=$current_time
+        fi
+        
+        # Get current values
+        get_ram_usage
+        get_cpu_usage
+        
+        # Update absolute peaks
+        update_absolute_peaks "$ram_usage" "$ram_percent" "$cpu_usage"
+        
+        # Check if it's time to generate report
+        if [ $((current_time - last_report)) -ge $REPORT_INTERVAL ]; then
+            generate_peak_report
+            last_report=$current_time
+            echo "[$(date '+%H:%M:%S')] Generated new peak report"
+        fi
+        
+        # Log current values
+        log_message "Current values - RAM: ${ram_usage}MB (${ram_percent}%), CPU: ${cpu_usage}%"
+        
+        sleep $MONITOR_INTERVAL
+    done
+}
+
+# Main script
+main 
