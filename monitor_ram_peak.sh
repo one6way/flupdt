@@ -18,7 +18,8 @@ create_log_dir() {
 # Function to rotate log files
 rotate_logs() {
     local current_date=$(date '+%Y-%m-%d')
-    local old_log="$LOG_FILE.$current_date"
+    local current_time=$(date '+%H-%M-%S')
+    local old_log="$LOG_FILE.$current_date.$current_time"
     
     # Only rotate if the log file exists and is older than 5 minutes
     if [ -f "$LOG_FILE" ]; then
