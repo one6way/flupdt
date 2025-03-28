@@ -22,8 +22,9 @@ init_peak_file() {
         echo "RAM_PEAK=0" > "$PEAK_FILE"
         echo "RAM_PEAK_PERCENT=0" >> "$PEAK_FILE"
         echo "CPU_PEAK=0" >> "$PEAK_FILE"
-        echo "PEAK_TIME=" >> "$PEAK_FILE"
+        echo "PEAK_TIME=$(date '+%Y-%m-%d %H:%M:%S')" >> "$PEAK_FILE"
         chmod 644 "$PEAK_FILE"
+        log_message "Created new peak file with initial values"
     fi
 }
 
@@ -35,7 +36,7 @@ get_absolute_peaks() {
         RAM_PEAK=0
         RAM_PEAK_PERCENT=0
         CPU_PEAK=0
-        PEAK_TIME=""
+        PEAK_TIME=$(date '+%Y-%m-%d %H:%M:%S')
     fi
 }
 
@@ -44,28 +45,27 @@ update_absolute_peaks() {
     local current_ram=$1
     local current_ram_percent=$2
     local current_cpu=$3
-    local current_time=$4
-    
-    get_absolute_peaks
-    
-    local update_needed=false
-    
-    if (( $(echo "$current_ram > $RAM_PEAK" | bc -l) )); then
+    local current_time=$(date '+%Y-%m-%d %H:%M:%S')
+    local updated=false
+
+    # Проверяем и обновляем пиковые значения
+    if [ "$(echo "$current_ram > $RAM_PEAK" | bc)" -eq 1 ]; then
         RAM_PEAK=$current_ram
-        update_needed=true
+        updated=true
     fi
-    
-    if (( $(echo "$current_ram_percent > $RAM_PEAK_PERCENT" | bc -l) )); then
+
+    if [ "$(echo "$current_ram_percent > $RAM_PEAK_PERCENT" | bc)" -eq 1 ]; then
         RAM_PEAK_PERCENT=$current_ram_percent
-        update_needed=true
+        updated=true
     fi
-    
-    if (( $(echo "$current_cpu > $CPU_PEAK" | bc -l) )); then
+
+    if [ "$(echo "$current_cpu > $CPU_PEAK" | bc)" -eq 1 ]; then
         CPU_PEAK=$current_cpu
-        update_needed=true
+        updated=true
     fi
-    
-    if [ "$update_needed" = true ]; then
+
+    # Если были обновления, сохраняем новые значения
+    if [ "$updated" = true ]; then
         PEAK_TIME=$current_time
         echo "RAM_PEAK=$RAM_PEAK" > "$PEAK_FILE"
         echo "RAM_PEAK_PERCENT=$RAM_PEAK_PERCENT" >> "$PEAK_FILE"
