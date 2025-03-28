@@ -48,18 +48,26 @@ update_absolute_peaks() {
     local current_time=$(date '+%Y-%m-%d %H:%M:%S')
     local updated=false
 
+    # Округляем значения до целых чисел
+    current_ram=$(printf "%.0f" "$current_ram")
+    current_ram_percent=$(printf "%.0f" "$current_ram_percent")
+    current_cpu=$(printf "%.0f" "$current_cpu")
+    RAM_PEAK=$(printf "%.0f" "$RAM_PEAK")
+    RAM_PEAK_PERCENT=$(printf "%.0f" "$RAM_PEAK_PERCENT")
+    CPU_PEAK=$(printf "%.0f" "$CPU_PEAK")
+
     # Проверяем и обновляем пиковые значения
-    if [ "$(echo "$current_ram > $RAM_PEAK" | bc -l)" -eq 1 ]; then
+    if [ "$current_ram" -gt "$RAM_PEAK" ]; then
         RAM_PEAK=$current_ram
         updated=true
     fi
 
-    if [ "$(echo "$current_ram_percent > $RAM_PEAK_PERCENT" | bc -l)" -eq 1 ]; then
+    if [ "$current_ram_percent" -gt "$RAM_PEAK_PERCENT" ]; then
         RAM_PEAK_PERCENT=$current_ram_percent
         updated=true
     fi
 
-    if [ "$(echo "$current_cpu > $CPU_PEAK" | bc -l)" -eq 1 ]; then
+    if [ "$current_cpu" -gt "$CPU_PEAK" ]; then
         CPU_PEAK=$current_cpu
         updated=true
     fi
