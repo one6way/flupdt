@@ -62,11 +62,36 @@ log_message() {
 check_service() {
     local service=$1
     local pattern="${SERVICE_PATTERNS[$service]}"
+    local dir="${SERVICE_DIRS[$service]}"
     
-    if ps -ef | grep -v grep | grep -q "$pattern"; then
-        return 0  # Service is running
+    # Check if process exists and is running from correct directory
+    if ps -ef | grep -v grep | grep "$pattern" | grep -q "$BASE_DIR/$dir"; then
+        return 0  # Service is running from correct directory
     else
-        return 1  # Service is not running
+        # Check if process exists at all
+        if ps -ef | grep -v grep | grep -q "$pattern"; then
+            log_message "Warning: $service process found but not running from $BASE_DIR/$dir"
+            return 1  # Service is running but from wrong location
+        else
+            return 1  # Service is not running at all
+        fi
+    fi
+}
+
+# Function to get service status
+get_service_status() {
+    local service=$1
+    local pattern="${SERVICE_PATTERNS[$service]}"
+    local dir="${SERVICE_DIRS[$service]}"
+    
+    if ps -ef | grep -v grep | grep "$pattern" | grep -q "$BASE_DIR/$dir"; then
+        echo "RUNNING"
+    elif ps -ef | grep -v grep | grep -q "$pattern"; then
+        echo "WRONG_LOCATION"
+    elif [ -d "$BASE_DIR/$dir" ]; then
+        echo "STOPPED"
+    else
+        echo "NO_DIRECTORY"
     fi
 }
 
@@ -86,9 +111,10 @@ check_service_dir() {
 start_service() {
     local service=$1
     local command="${SERVICES[$service]}"
+    local dir="${SERVICE_DIRS[$service]}"
     
-    log_message "Starting $service service..."
-    cd "$BASE_DIR" && ./$command
+    log_message "Starting $service service from $BASE_DIR/$dir..."
+    cd "$BASE_DIR/$dir" && ./$command
     if [ $? -eq 0 ]; then
         log_message "Successfully started $service service"
     else
@@ -101,20 +127,75 @@ check_and_restart_service() {
     local service=$1
     
     if ! check_service "$service"; then
-        log_message "Service $service is not running"
+        log_message "Service $service is not running from correct location"
         if check_service_dir "$service"; then
+            # Kill any existing process running from wrong location
+            ps -ef | grep -v grep | grep "${SERVICE_PATTERNS[$service]}" | grep -v "$BASE_DIR/${SERVICE_DIRS[$service]}" | awk '{print $2}' | xargs -r kill -9
             start_service "$service"
         else
-            log_message "Service directory for $service does not exist"
+            log_message "Service directory for $service does not exist at $BASE_DIR/${SERVICE_DIRS[$service]}"
         fi
     fi
 }
 
 # Function to check all services
 check_all_services() {
+    local all_running=true
+    local running_services=()
+    local stopped_services=()
+    local wrong_location_services=()
+    local no_directory_services=()
+    
+    log_message "=== Starting service status check ==="
+    
     for service in "${!SERVICES[@]}"; do
+        local status=$(get_service_status "$service")
+        case $status in
+            "RUNNING")
+                running_services+=("$service")
+                ;;
+            "WRONG_LOCATION")
+                wrong_location_services+=("$service")
+                all_running=false
+                ;;
+            "STOPPED")
+                stopped_services+=("$service")
+                all_running=false
+                ;;
+            "NO_DIRECTORY")
+                no_directory_services+=("$service")
+                all_running=false
+                ;;
+        esac
+    done
+    
+    # Log detailed status
+    log_message "Service Status Summary:"
+    if [ ${#running_services[@]} -gt 0 ]; then
+        log_message "✓ Running services: ${running_services[*]}"
+    fi
+    if [ ${#stopped_services[@]} -gt 0 ]; then
+        log_message "✗ Stopped services: ${stopped_services[*]}"
+    fi
+    if [ ${#wrong_location_services[@]} -gt 0 ]; then
+        log_message "⚠ Services running from wrong location: ${wrong_location_services[*]}"
+    fi
+    if [ ${#no_directory_services[@]} -gt 0 ]; then
+        log_message "❌ Missing service directories: ${no_directory_services[*]}"
+    fi
+    
+    if [ "$all_running" = true ]; then
+        log_message "✅ All services are running correctly"
+    else
+        log_message "⚠ Some services require attention"
+    fi
+    
+    # Restart services that need it
+    for service in "${stopped_services[@]}" "${wrong_location_services[@]}"; do
         check_and_restart_service "$service"
     done
+    
+    log_message "=== Service status check completed ==="
 }
 
 # Function to check specific service
