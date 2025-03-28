@@ -49,17 +49,17 @@ update_absolute_peaks() {
     local updated=false
 
     # Проверяем и обновляем пиковые значения
-    if [ "$(echo "$current_ram > $RAM_PEAK" | bc)" -eq 1 ]; then
+    if [ "$(echo "$current_ram > $RAM_PEAK" | bc -l)" -eq 1 ]; then
         RAM_PEAK=$current_ram
         updated=true
     fi
 
-    if [ "$(echo "$current_ram_percent > $RAM_PEAK_PERCENT" | bc)" -eq 1 ]; then
+    if [ "$(echo "$current_ram_percent > $RAM_PEAK_PERCENT" | bc -l)" -eq 1 ]; then
         RAM_PEAK_PERCENT=$current_ram_percent
         updated=true
     fi
 
-    if [ "$(echo "$current_cpu > $CPU_PEAK" | bc)" -eq 1 ]; then
+    if [ "$(echo "$current_cpu > $CPU_PEAK" | bc -l)" -eq 1 ]; then
         CPU_PEAK=$current_cpu
         updated=true
     fi
