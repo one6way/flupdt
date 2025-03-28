@@ -121,6 +121,12 @@ generate_peak_report() {
 create_log_dir
 echo "System Peak Monitor Started"
 log_message "System Peak Monitor Started"
+echo "Monitoring interval: $CHECK_INTERVAL seconds"
+echo "Report interval: $REPORT_INTERVAL seconds"
+echo "Log rotation interval: 300 seconds"
+echo "Log directory: $LOG_DIR"
+echo "Current time: $(date '+%Y-%m-%d %H:%M:%S')"
+echo "----------------------------------------"
 
 # Initialize variables
 peak_ram_usage=0
@@ -129,6 +135,7 @@ peak_cpu_usage=0
 peak_time=""
 start_time=$(date +%s)
 last_rotation=$(date +%s)
+check_count=0
 
 while true; do
     current_time=$(date +%s)
@@ -141,6 +148,7 @@ while true; do
         peak_ram_usage=$current_ram_usage
         peak_ram_percentage=$current_ram_percentage
         peak_time=$(date '+%Y-%m-%d %H:%M:%S')
+        echo "[$(date '+%H:%M:%S')] New RAM peak: ${peak_ram_usage}MB (${peak_ram_percentage}%)"
     fi
     
     if (( $(echo "$current_cpu_usage > $peak_cpu_usage" | bc -l) )); then
@@ -148,11 +156,15 @@ while true; do
         if [ -z "$peak_time" ]; then
             peak_time=$(date '+%Y-%m-%d %H:%M:%S')
         fi
+        echo "[$(date '+%H:%M:%S')] New CPU peak: ${peak_cpu_usage}%"
     fi
     
     # Check if it's time to generate report (every 20 minutes)
     if (( current_time - start_time >= REPORT_INTERVAL )); then
+        echo "----------------------------------------"
+        echo "[$(date '+%H:%M:%S')] Generating report..."
         generate_peak_report "$peak_time" "$peak_ram_usage" "$peak_ram_percentage" "$peak_cpu_usage"
+        echo "[$(date '+%H:%M:%S')] Report generated"
         
         # Reset peak values for next interval
         peak_ram_usage=0
@@ -160,12 +172,21 @@ while true; do
         peak_cpu_usage=0
         peak_time=""
         start_time=$current_time
+        echo "----------------------------------------"
     fi
     
     # Check if it's time to rotate logs (every 5 minutes)
     if (( current_time - last_rotation >= 300 )); then
+        echo "[$(date '+%H:%M:%S')] Rotating logs..."
         rotate_logs
         last_rotation=$current_time
+        echo "[$(date '+%H:%M:%S')] Logs rotated"
+    fi
+    
+    # Print current status every 5 checks
+    ((check_count++))
+    if [ $((check_count % 5)) -eq 0 ]; then
+        echo "[$(date '+%H:%M:%S')] Current status - RAM: ${current_ram_usage}MB (${current_ram_percentage}%), CPU: ${current_cpu_usage}%"
     fi
     
     sleep $CHECK_INTERVAL
