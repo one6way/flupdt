@@ -3,6 +3,7 @@
 # Configuration
 LOG_DIR="/var/log/ram_monitor"
 LOG_FILE="$LOG_DIR/ram_peak.log"
+PEAK_FILE="$LOG_DIR/absolute_peaks.txt"
 CHECK_INTERVAL=60  # Check every minute
 REPORT_INTERVAL=1200  # Report every 20 minutes
 MAX_LOG_AGE=7  # Keep logs for 7 days
@@ -12,6 +13,65 @@ create_log_dir() {
     if [ ! -d "$LOG_DIR" ]; then
         mkdir -p "$LOG_DIR"
         chmod 755 "$LOG_DIR"
+    fi
+}
+
+# Function to initialize peak file if it doesn't exist
+init_peak_file() {
+    if [ ! -f "$PEAK_FILE" ]; then
+        echo "RAM_PEAK=0" > "$PEAK_FILE"
+        echo "RAM_PEAK_PERCENT=0" >> "$PEAK_FILE"
+        echo "CPU_PEAK=0" >> "$PEAK_FILE"
+        echo "PEAK_TIME=" >> "$PEAK_FILE"
+        chmod 644 "$PEAK_FILE"
+    fi
+}
+
+# Function to get absolute peak values
+get_absolute_peaks() {
+    if [ -f "$PEAK_FILE" ]; then
+        source "$PEAK_FILE"
+    else
+        RAM_PEAK=0
+        RAM_PEAK_PERCENT=0
+        CPU_PEAK=0
+        PEAK_TIME=""
+    fi
+}
+
+# Function to update absolute peak values
+update_absolute_peaks() {
+    local current_ram=$1
+    local current_ram_percent=$2
+    local current_cpu=$3
+    local current_time=$4
+    
+    get_absolute_peaks
+    
+    local update_needed=false
+    
+    if (( $(echo "$current_ram > $RAM_PEAK" | bc -l) )); then
+        RAM_PEAK=$current_ram
+        update_needed=true
+    fi
+    
+    if (( $(echo "$current_ram_percent > $RAM_PEAK_PERCENT" | bc -l) )); then
+        RAM_PEAK_PERCENT=$current_ram_percent
+        update_needed=true
+    fi
+    
+    if (( $(echo "$current_cpu > $CPU_PEAK" | bc -l) )); then
+        CPU_PEAK=$current_cpu
+        update_needed=true
+    fi
+    
+    if [ "$update_needed" = true ]; then
+        PEAK_TIME=$current_time
+        echo "RAM_PEAK=$RAM_PEAK" > "$PEAK_FILE"
+        echo "RAM_PEAK_PERCENT=$RAM_PEAK_PERCENT" >> "$PEAK_FILE"
+        echo "CPU_PEAK=$CPU_PEAK" >> "$PEAK_FILE"
+        echo "PEAK_TIME=$PEAK_TIME" >> "$PEAK_FILE"
+        log_message "New absolute peak values: RAM=${RAM_PEAK}MB (${RAM_PEAK_PERCENT}%), CPU=${CPU_PEAK}% at $PEAK_TIME"
     fi
 }
 
@@ -100,10 +160,18 @@ generate_peak_report() {
     local peak_ram_percentage=$3
     local peak_cpu_usage=$4
     
+    get_absolute_peaks
+    
     log_message "=== System Peak Report for $(date '+%Y-%m-%d %H:%M:%S') ==="
-    log_message "Peak RAM Usage: ${peak_ram_usage}MB (${peak_ram_percentage}%)"
-    log_message "Peak CPU Usage: ${peak_cpu_usage}%"
-    log_message "Peak Time: $peak_time"
+    log_message "Current Interval Peaks:"
+    log_message "  RAM: ${peak_ram_usage}MB (${peak_ram_percentage}%)"
+    log_message "  CPU: ${peak_cpu_usage}%"
+    log_message "  Time: $peak_time"
+    
+    log_message "Absolute All-Time Peaks:"
+    log_message "  RAM: ${RAM_PEAK}MB (${RAM_PEAK_PERCENT}%)"
+    log_message "  CPU: ${CPU_PEAK}%"
+    log_message "  Time: $PEAK_TIME"
     
     log_message "Top Memory-Consuming Process Details:"
     get_top_processes | while read line; do
@@ -120,6 +188,7 @@ generate_peak_report() {
 
 # Main script
 create_log_dir
+init_peak_file
 echo "System Peak Monitor Started"
 log_message "System Peak Monitor Started"
 echo "Monitoring interval: $CHECK_INTERVAL seconds"
@@ -144,7 +213,10 @@ while true; do
     current_ram_percentage=$(get_ram_percentage)
     current_cpu_usage=$(get_cpu_usage)
     
-    # Update peak if current usage is higher
+    # Update absolute peaks
+    update_absolute_peaks "$current_ram_usage" "$current_ram_percentage" "$current_cpu_usage" "$(date '+%Y-%m-%d %H:%M:%S')"
+    
+    # Update interval peak if current usage is higher
     if (( $(echo "$current_ram_usage > $peak_ram_usage" | bc -l) )); then
         peak_ram_usage=$current_ram_usage
         peak_ram_percentage=$current_ram_percentage
@@ -167,7 +239,7 @@ while true; do
         generate_peak_report "$peak_time" "$peak_ram_usage" "$peak_ram_percentage" "$peak_cpu_usage"
         echo "[$(date '+%H:%M:%S')] Report generated"
         
-        # Reset peak values for next interval
+        # Reset interval peak values for next interval
         peak_ram_usage=0
         peak_ram_percentage=0
         peak_cpu_usage=0
